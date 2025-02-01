@@ -1,6 +1,16 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+var defaultActions = map[string]string{
+	"write_file":  "Use this action to create or overwrite a file with the specified content.",
+	"read_file":   "Use this action when you need to read the content of an existing file.",
+	"edit_file":   "Use this action to modify an existing file, keeping necessary content intact.",
+	"delete_file": "Use this action when a file needs to be deleted for cleanup or replacement.",
+}
 
 type Coder struct {
 	Language         string
@@ -12,8 +22,30 @@ type Coder struct {
 	Rules            []string
 	Tests            bool
 	TestStyles       []string
-	MinIterations    int
 	MaxIterations    int
+	Actions          map[string]string
+}
+
+func NewCoder(language, task, problemToSolve string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool, minIterations, maxIterations int, actions map[string]string) Coder {
+	for key, action := range defaultActions {
+		if _, exists := actions[key]; !exists {
+			actions[key] = action
+		}
+	}
+
+	return Coder{
+		Language:         language,
+		Task:             task,
+		ProblemToSolve:   problemToSolve,
+		Risks:            risks,
+		CodeStyles:       codeStyles,
+		AcceptConditions: acceptConditions,
+		Rules:            rules,
+		Tests:            tests,
+		TestStyles:       testStyles,
+		MaxIterations:    maxIterations,
+		Actions:          actions,
+	}
 }
 
 func (c Coder) TaskInformation() string {
@@ -27,8 +59,7 @@ func (c Coder) TaskInformation() string {
 			"- **Accepted Conditions:** ", c.AcceptConditions, " (Requirements that must be met)\n"+
 			"- **Development Rules:** ", c.Rules, " (Mandatory constraints)\n"+
 			"- **Requires Tests?** ", c.Tests, "\n"+
-			"- **Test Styles:** ", c.TestStyles, " (If tests are required)\n"+
-			"- **Minimum Iterations Required:** ", c.MinIterations, "\n\n")
+			"- **Test Styles:** ", c.TestStyles, " (If Tests are required)\n")
 }
 
 func (c Coder) PromptPlan() []Message {
@@ -36,13 +67,12 @@ func (c Coder) PromptPlan() []Message {
 		{
 			Role: "system",
 			Content: fmt.Sprint(
-				"You are an expert software engineer responsible for planning the correct implementation of a coding task. Your job is to **analyze the given problem and generate a structured, step-by-step development plan**"+
+				"You are an expert software engineer responsible for planning the correct implementation of a coding Task. Your job is to **analyze the given problem and generate a structured, step-by-step development plan**"+
 					"### **Instructions:**\n"+
-					"1. Analyze the task and break it down into **small, actionable steps** for implementation.\n"+
-					"2. Consider potential risks and ensure each step minimizes them.\n"+
-					"3. Ensure that the coding style follows `", c.CodeStyles, "` and the rules `", c.Rules, "`.\n"+
+					"1. Analyze the Task and break it down into **small, actionable steps** for implementation.\n"+
+					"2. Consider potential Risks and ensure each step minimizes them.\n"+
+					"3. Ensure that the coding style follows `", c.CodeStyles, "` and the Rules `", c.Rules, "`.\n"+
 					"4. If `", c.Tests, "` = true, include a plan for writing and running `", c.TestStyles, "`.\n"+
-					"5. The plan should guarantee that the minimum iterations `", c.MinIterations, "` are met.\n\n"+
 					"### **Output Format (Only return a numbered list of steps):**\n"+
 					"1. [Step 1]\n"+
 					"2. [Step 2]\n"+
@@ -58,28 +88,41 @@ func (c Coder) PromptPlan() []Message {
 }
 
 func (c Coder) PromptCodeGeneration(plan, generatedCode string) []Message {
+	var actionsDescription strings.Builder
+	for action, description := range c.Actions {
+		fmt.Fprintf(&actionsDescription, "- `%s`: %s\n", action, description)
+	}
+
+	systemPrompt := fmt.Sprintf(
+		`You are a software engineer AI. Generate Go code based on the given plan.
+		Your responses must be in JSON format, using the correct action according to the task.
+			
+		### Available Actions:
+		%s
+			
+		### JSON Output Format:
+		{
+		  "action": "<selected_action>",
+		  "filename": "<file>.go",
+		  "content": "<code or file content>"
+		}
+		
+		### Task Details:
+		- **Plan:** 
+		%s
+		
+		Ensure that your response is structured as a valid JSON object. Never return plain text. 
+		If unsure about which action to use, default to "write_file".`,
+		actionsDescription, plan)
+
 	return []Message{
 		{
-			Role: "system",
-			Content: fmt.Sprint(
-				"You are an expert software engineer and your job is to **implement the given plan by writing high-quality code**.\n\n",
-				c.TaskInformation(),
-				"### **Development Plan :**\n", plan, "\n\n"+
-					"### **Instructions:**\n"+
-					"1. Implement the task in `", c.Language, "` by following the **step-by-step development plan**.\n"+
-					"2. Ensure that the code strictly adheres to the `", c.CodeStyles, "` and `", c.Rules, "`.\n"+
-					"3. If `", c.Tests, "` = true, include test cases following `", c.TestStyles, "`.\n"+
-					"4. The code must handle **all risks** identified in `", c.Risks, "`.\n"+
-					"5. Ensure that the implementation meets all **accepted conditions**: `", c.AcceptConditions, "`.\n\n"+
-					"### **Output Format:**\n"+
-					"- **Return only the final, complete code.**\n"+
-					"- If tests are required, include a separate test file or function.\n"+
-					"- Do **NOT** explain the code, only provide the implementation.\n\n"+
-					"If any step cannot be completed due to missing information, **clearly indicate what is needed**.\n"),
+			Role:    "system",
+			Content: systemPrompt,
 		},
 		{
 			Role:    "user",
-			Content: "### **Generated Code / Current status / Current code:**\n" + generatedCode,
+			Content: fmt.Sprintf("Current Code:\n%s", generatedCode),
 		},
 	}
 }
@@ -88,19 +131,18 @@ func (c Coder) PromptValidation(plan, generatedCode string) []Message {
 	return []Message{
 		{
 			Role: "system",
-			Content: fmt.Sprint("You are a strict validation AI responsible for **verifying if the generated code fully meets all the task requirements**.\n\n"+
+			Content: fmt.Sprint("You are a strict validation AI responsible for **verifying if the generated code fully meets all the Task requirements**.\n\n"+
 				c.TaskInformation()+
 				"### **Development Plan :**\n", plan, "\n\n"+
 				"### **Instructions:**\n"+
-				"1. Compare the `", generatedCode, "` against the task and **Development Plan**, ensuring all conditions are met.\n"+
+				"1. Compare the `", generatedCode, "` against the Task and **Development Plan**, ensuring all conditions are met.\n"+
 				"2. Validate that the code:\n"+
-				"   - **Fulfills the task**: `", c.Task, "`\n"+
+				"   - **Fulfills the Task**: `", c.Task, "`\n"+
 				"   - **Solves the problem correctly**: `", c.ProblemToSolve, "`\n"+
-				"   - **Mitigates all risks**: `", c.Risks, "`\n"+
+				"   - **Mitigates all Risks**: `", c.Risks, "`\n"+
 				"   - **Follows the coding style**: `", c.CodeStyles, "`\n"+
-				"   - **Respects all mandatory rules**: `", c.Rules, "`\n"+
-				"   - **Implements required tests** (if `", c.Tests, "` = true and follows `", c.TestStyles, "`)\n"+
-				"   - **Includes at least `", c.MinIterations, "` iterations (if applicable)**\n\n"+
+				"   - **Respects all mandatory Rules**: `", c.Rules, "`\n"+
+				"   - **Implements required Tests** (if `", c.Tests, "` = true and follows `", c.TestStyles, "`)\n"+
 				"### **Output Format (Strictly One Character Response):**\n"+
 				"- \"true\" → The implementation fully meets all criteria.\n"+
 				"- \"false\" → The implementation is incorrect or incomplete.\n\n"+

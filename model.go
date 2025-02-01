@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -15,6 +16,12 @@ const model = "qwen2.5-coder-7b-instruct"
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+type Action struct {
+	Action   string `json:"action"`
+	Filename string `json:"filename,omitempty"`
+	Content  string `json:"content,omitempty"`
 }
 
 type requestPayload struct {
@@ -54,10 +61,10 @@ func NewModelClient() *ModelClient {
 	}
 }
 
-func (mc *ModelClient) Process(messges []Message) (string, error) {
+func (mc *ModelClient) Think(messages []Message) (string, error) {
 	payload := requestPayload{
 		Model:       model,
-		Messages:    messges,
+		Messages:    messages,
 		Temperature: 0.69,
 		MaxTokens:   -1,
 		Stream:      false,
@@ -68,7 +75,50 @@ func (mc *ModelClient) Process(messges []Message) (string, error) {
 		return "", err
 	}
 
+	if generatedResponse.Choices == nil {
+		return "", errors.New("no choices found")
+	}
 	return generatedResponse.Choices[0].Message.Content, nil
+}
+
+func (mc *ModelClient) Process(messages []Message) (*Action, error) {
+	payload := requestPayload{
+		Model:       model,
+		Messages:    messages,
+		Temperature: 0.69,
+		MaxTokens:   -1,
+		Stream:      false,
+	}
+
+	generatedResponse, err := mc.sendRequestAndParse(payload, 3)
+	if err != nil {
+		return nil, err
+	}
+
+	rawContent := strings.TrimSpace(generatedResponse.Choices[0].Message.Content)
+	rawContent = strings.ReplaceAll(rawContent, "```json", "")
+	rawContent = strings.ReplaceAll(rawContent, "```", "")
+	marker := ",\n  \"content\": "
+	start := strings.Index(rawContent, marker)
+	end := strings.LastIndex(rawContent, "}")
+
+	var contentAction string
+	if start != -1 && end != -1 && start < end {
+		contentAction = rawContent[start+len(marker)+1 : end-2]
+		contentAction = utils.UnescapeIfNeeded(contentAction)
+		rawContent = utils.RemoveSubstring(rawContent, start, end)
+	}
+
+	var action Action
+	if err = json.Unmarshal([]byte(rawContent), &action); err != nil {
+		return nil, fmt.Errorf("failed to parse response as JSON: %w response: %s", err, rawContent)
+	}
+
+	if contentAction != "" {
+		action.Content += contentAction
+	}
+
+	return &action, nil
 }
 
 func (mc *ModelClient) YesOrNo(messages []Message, retry int) (bool, error) {
