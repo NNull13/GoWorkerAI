@@ -55,18 +55,8 @@ func (r *Runtime) Run() {
 			continue
 		}
 
-		switch action.Action {
-		case "write_file":
-			writeToFile(generationFolder, action.Filename, action.Content)
-			generatedCode = action.Content
-		case "read_file":
-			generatedCode = readFile(generationFolder, action.Filename)
-		case "edit_file":
-			editFile(generationFolder, action.Filename, action.Content)
-			generatedCode = readFile(generationFolder, action.Filename)
-		case "delete_file":
-			deleteFile(generationFolder, action.Filename)
-		}
+		log.Printf("Processing action: %s | Action: %v", action, action)
+		generatedCode = ActionSwitch(action, generationFolder)
 
 		promptValidation := r.coder.PromptValidation(plan, generatedCode)
 		validationResult, err = r.model.YesOrNo(promptValidation, 3)

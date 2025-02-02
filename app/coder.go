@@ -4,13 +4,6 @@ import (
 	"fmt"
 )
 
-var defaultActions = map[string]string{
-	"write_file":  "Use this action to create or overwrite a file with the specified content.",
-	"read_file":   "Use this action when you need to read the content of an existing file.",
-	"edit_file":   "Use this action to modify an existing file, keeping necessary content intact.",
-	"delete_file": "Use this action when a file needs to be deleted for cleanup or replacement.",
-}
-
 type Coder struct {
 	Language         string
 	Task             string
@@ -26,7 +19,7 @@ type Coder struct {
 	LockFolder       bool
 }
 
-func NewCoder(language, task, problemToSolve string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool, minIterations, maxIterations int, actions map[string]string) Coder {
+func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool, maxIterations int, actions map[string]string) Coder {
 	for key, action := range defaultActions {
 		if _, exists := actions[key]; !exists {
 			actions[key] = action
@@ -36,7 +29,6 @@ func NewCoder(language, task, problemToSolve string, risks, codeStyles, acceptCo
 	return Coder{
 		Language:         language,
 		Task:             task,
-		ProblemToSolve:   problemToSolve,
 		Risks:            risks,
 		CodeStyles:       codeStyles,
 		AcceptConditions: acceptConditions,
@@ -53,7 +45,6 @@ func (c Coder) TaskInformation() string {
 		"### **Task Information:**\n"+
 			"- **Programming Language:** ", c.Language, "\n"+
 			"- **Main Task:** ", c.Task, "\n"+
-			"- **Problem to Solve:** ", c.ProblemToSolve, "\n"+
 			"- **Potential Risks:** ", c.Risks, " (List of challenges that must be considered)\n"+
 			"- **Code Style Preferences:** ", c.CodeStyles, " (Standards to follow)\n"+
 			"- **Accepted Conditions:** ", c.AcceptConditions, " (Requirements that must be met)\n"+
@@ -138,7 +129,6 @@ func (c Coder) PromptValidation(plan, generatedCode string) []Message {
 				"1. Compare the `", generatedCode, "` against the Task and **Development Plan**, ensuring all conditions are met.\n"+
 				"2. Validate that the code:\n"+
 				"   - **Fulfills the Task**: `", c.Task, "`\n"+
-				"   - **Solves the problem correctly**: `", c.ProblemToSolve, "`\n"+
 				"   - **Mitigates all Risks**: `", c.Risks, "`\n"+
 				"   - **Follows the coding style**: `", c.CodeStyles, "`\n"+
 				"   - **Respects all mandatory Rules**: `", c.Rules, "`\n"+
