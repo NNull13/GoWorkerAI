@@ -29,71 +29,23 @@ var coderSample = app.NewCoder(
 	[]string{"Use `httptest` package for testing the `/status` route."},
 	true,
 	10,
-	map[string]string{},
 	"",
+	false,
 )
 
 var coderCustom = app.NewCoder(
 	"Go",
-	`Generate comprehensive unit and integration tests for my Go project.The project's entire code resides in the "app" folder. 
-	Your task is to review only the code within the folder "app"" (using the "list_files" functionality) and then generate complete test files (i.e., *_test.go) without modifying any existing code files.
-			Task: Execute Comprehensive Automated Testing  
-			Objective: Validate the project's functionality with robust and exhaustive tests.
-			
-			Requirements:
-			- Write tests that cover all critical code paths.
-			- Follow best practices for unit and integration testing in Go.
-			- Ensure robust error handling in test cases.
-			- All tests must pass before deployment.
-			- Continuous integration should automatically verify test results.
-			- Test logs must include detailed debugging information.
-			
-			Technical Constraints:
-			- Use Go's built-in testing package for unit tests.
-			- Utilize httptest for testing HTTP handlers.
-			- Implement table-driven tests and organize them using t.Run() with descriptive scenario names.
-			- Use the testify package for assertions where appropriate.
-			- Include proper test teardown and cleanup routines.
-			- Integrate with CI/CD pipelines for automated testing.
-			
-			Important:
-			- Do not modify the go.mod file or any existing code files—only create or update test files.
-			
-			Additional Guidance:
-			- Ensure tests cover scenarios including successful execution, error cases, integration issues, and edge cases such as flaky tests.
-			- The tests should be ready to run with 'go test'.
-			
-			Please generate complete test files that fully meet these requirements.`,
-	[]string{
-		"Tests are failing due to unexpected errors.",
-		"Integration issues between modules are present.",
-		"Incomplete test coverage.",
-		"Flaky tests causing inconsistent results.",
-	},
-	[]string{
-		"Write tests that cover all critical code paths.",
-		"Follow best practices for unit and integration testing in Go.",
-		"Implement robust error handling in test cases.",
-	},
-	[]string{
-		"All tests must pass before deployment.",
-		"Continuous integration should verify test results.",
-		"Test logs must include detailed debugging information.",
-	},
-	[]string{
-		"Utilize the testing package for unit tests.",
-		"Use httptest for HTTP handler testing.",
-		"Implement proper test teardown and cleanup routines.",
-		"Do not modify go.mod.",
-		"Review only files in the 'app' folder using the list_files feature.",
-	},
-	[]string{
-		"Integrate with CI/CD pipelines for automated testing.",
-		"Use testify for assertions and organize tests using table-driven scenarios.",
-		"Leverage t.Run() with descriptive scenario names.",
-	},
+	`Your task is to review the code in root and then generate complete test files (i.e., *_test.go) without modifying any existing code files.
+	List files of root and read each for each to create the test go file covering all the code to test the functionality
+	Objective: List all the files and validate the project's functionality with robust and exhaustive tests.
+	Read file restclient.go inside the folder named utils inside the folder app, and create the file restclient_test.go `,
+	[]string{},
+	[]string{},
+	[]string{},
+	[]string{},
+	[]string{},
 	true,
-	5,
-	map[string]string{},
+	33,
 	"",
+	false,
 )

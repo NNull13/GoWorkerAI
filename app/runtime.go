@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -27,7 +26,6 @@ func (r *Runtime) Run() {
 	if err != nil {
 		log.Panicf("Error generating plan: %v\n", err)
 	}
-	fmt.Println("Generated Plan:\n", plan)
 
 	runtimeFolder := r.coder.Folder
 	if r.coder.LockFolder {
@@ -43,11 +41,10 @@ func (r *Runtime) Run() {
 		log.Fatalf("Error creating logs directory %s: %v", logsFolder, err)
 	}
 	logFile := filepath.Join(logsFolder, time.Now().Format("20060102")+".log")
+	appendLLMLog(logFile, plan)
 
 	var validationResult bool
 	for i := 0; i <= r.coder.MaxIterations; i++ {
-		fmt.Println("Processing:", r.coder.Task)
-
 		var action *Action
 		promptWorker := r.coder.PromptCodeGeneration(plan, r.actions)
 		if action, err = r.model.Process(promptWorker); err != nil {
@@ -67,30 +64,12 @@ func (r *Runtime) Run() {
 			log.Printf("Validation error: %v", err)
 		}
 
-		fmt.Println("Validation Result:", validationResult)
-		appendToFile(logFile, r.coder.Task, action, validationResult)
+		log.Printf("Validation Result: %v, Action %v", validationResult, action)
+		appendActionLog(logFile, r.coder.Task, action, validationResult)
 
 		if validationResult {
-			fmt.Println("✅ Task completed successfully:", r.coder.Task)
+			log.Printf("✅ Task completed successfully: %s", r.coder.Task)
 			break
 		}
-	}
-}
-
-func appendToFile(filename, task string, action *Action, validation bool) {
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Println("Error opening log file:", err)
-		return
-	}
-	defer file.Close()
-
-	logEntry := fmt.Sprintf(
-		"Timestamp: %s\n--- Task: %s ---\nAction:\n%v\nValidation Result: %v\n\n",
-		time.Now().Format(time.RFC3339), task, action, validation,
-	)
-
-	if _, err = file.WriteString(logEntry); err != nil {
-		fmt.Println("Error writing to log file:", err)
 	}
 }

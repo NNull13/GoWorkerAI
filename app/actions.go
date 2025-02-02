@@ -1,17 +1,35 @@
 package app
 
 import (
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/xlab/treeprint"
 )
 
 var defaultActions = map[string]string{
-	"write_file":  "Use this action to create or overwrite a file with the specified content.",
-	"read_file":   "Use this action when you need to read the content of an existing file.",
-	"edit_file":   "Use this action to modify an existing file, keeping necessary content intact.",
-	"delete_file": "Use this action when a file needs to be deleted for cleanup or replacement.",
-	"list_files":  "Use this action to list all files within a directory.",
+	"write_file": "Use this action to create a new file or overwrite an existing file with the provided content. " +
+		"Ensure that you specify the complete file path and include all necessary content. Ideal for saving generated code or configuration files. " +
+		"Double-check that the content does not contain unwanted formatting or escape sequences.",
+
+	"read_file": "Use this action to retrieve the content of an existing file. " +
+		"Provide the correct relative or absolute path to the file. Ensure that the file exists and is accessible. " +
+		"This action is useful for verifying file content or for processing data from external sources.",
+
+	"edit_file": "Use this action to modify an existing file while preserving its original content. " +
+		"Specify the target file path and the additional content or changes to be applied. " +
+		"This action should merge the new content with the existing content, ensuring that no essential data is lost.",
+
+	"delete_file": "Use this action to remove an existing file from the system. " +
+		"Provide the exact file path to be deleted. Confirm that the file is no longer required before using this action, " +
+		"as deletion is irreversible.",
+
+	"list_files": "Use this action to generate a detailed list of files within a specified directory. " +
+		"Supply the folder path as the 'filename' parameter. The output should include a hierarchical tree structure " +
+		"of the directory, and optionally, the contents of each file. This action is ideal for auditing or processing " +
+		"the repository structure to identify relevant files for further operations.",
 }
 
 func ExecuteAction(action *Action, folder string) (result string, err error) {
@@ -57,12 +75,11 @@ func readFile(baseDir, filename string) (string, error) {
 }
 
 func editFile(baseDir, filename, newContent string) error {
-	existingContent, err := readFile(baseDir, filename)
-	if err != nil {
+	_, err := readFile(baseDir, filename)
+	if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	mergedContent := existingContent + "\n" + newContent
-	return writeToFile(baseDir, filename, mergedContent)
+	return writeToFile(baseDir, filename, newContent)
 }
 
 func deleteFile(baseDir, filename string) error {
@@ -84,22 +101,43 @@ func listFiles(baseDir string) (string, error) {
 			return "", err
 		}
 	}
-
-	var files string
 	baseDir = filepath.Clean(baseDir)
-	err := filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			log.Printf("Error accessing path %s: %v\n", path, err)
-			return nil
-		}
-		if !d.IsDir() {
-			files += path + "\n"
-		}
-		return nil
-	})
-	if err != nil {
-		log.Printf("Error walking through directory %s: %v\n", baseDir, err)
+
+	tree := treeprint.New()
+	tree.SetValue(filepath.Base(baseDir))
+
+	skipDirs := map[string]bool{
+		".git":  true,
+		".idea": true,
+		"logs":  true,
 	}
 
-	return files, err
+	if err := buildTree(baseDir, tree, skipDirs); err != nil {
+		log.Printf("Error building tree for directory %s: %v\n", baseDir, err)
+		return "", err
+	}
+
+	return tree.String(), nil
+}
+
+func buildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if skipDirs[entry.Name()] {
+				continue
+			}
+			branch := tree.AddBranch(entry.Name())
+			err = buildTree(filepath.Join(dir, entry.Name()), branch, skipDirs)
+			if err != nil {
+				return err
+			}
+		} else {
+			tree.AddNode(entry.Name())
+		}
+	}
+	return nil
 }

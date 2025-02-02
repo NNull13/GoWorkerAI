@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	utils2 "GoEngineerAI/app/utils"
+	"GoEngineerAI/app/utils"
 )
 
 const endpoint = "/v1/chat/completions"
@@ -53,12 +53,12 @@ type responseLLM struct {
 }
 
 type ModelClient struct {
-	restClient *utils2.RestClient
+	restClient *utils.RestClient
 }
 
 func NewModelClient() *ModelClient {
 	return &ModelClient{
-		restClient: utils2.NewRestClient("http://localhost:1234", nil),
+		restClient: utils.NewRestClient("http://localhost:1234", nil),
 	}
 }
 
@@ -86,9 +86,8 @@ func (mc *ModelClient) Process(messages []Message) (*Action, error) {
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
-		Temperature: 0.69,
+		Temperature: 0.80,
 		MaxTokens:   -1,
-		Stream:      false,
 	}
 
 	generatedResponse, err := mc.sendRequestAndParse(payload, 3)
@@ -106,8 +105,8 @@ func (mc *ModelClient) Process(messages []Message) (*Action, error) {
 	var contentAction string
 	if start != -1 && end != -1 && start < end {
 		contentAction = rawContent[start+len(marker)+1 : end-2]
-		contentAction = utils2.UnescapeIfNeeded(contentAction)
-		rawContent = utils2.RemoveSubstring(rawContent, start, end)
+		contentAction = utils.UnescapeIfNeeded(contentAction)
+		rawContent = utils.RemoveSubstring(rawContent, start, end)
 	}
 
 	var action Action
@@ -134,7 +133,6 @@ func (mc *ModelClient) YesOrNo(messages []Message, retry int) (bool, error) {
 		Messages:    messages,
 		Temperature: 0.0,
 		MaxTokens:   1,
-		Stream:      false,
 	}
 
 	generatedResponse, err := mc.sendRequestAndParse(payload, 3)
