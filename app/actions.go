@@ -14,25 +14,25 @@ var defaultActions = map[string]string{
 	"list_files":  "Use this action to list all files within a directory.",
 }
 
-func ExecuteAction(action *Action, folder string) (generatedCode string, err error) {
+func ExecuteAction(action *Action, folder string) (result string, err error) {
 	if action != nil {
 		switch action.Action {
 		case "write_file":
 			err = writeToFile(folder, action.Filename, action.Content)
-			generatedCode = "Successfully wrote file " + action.Filename
+			result = "Successfully wrote file " + action.Filename
 		case "read_file":
-			generatedCode, err = readFile(folder, action.Filename)
+			result, err = readFile(folder, action.Filename)
 		case "edit_file":
 			err = editFile(folder, action.Filename, action.Content)
-			generatedCode = "Successfully edited file " + action.Filename
+			result = "Successfully edited file " + action.Filename
 		case "delete_file":
 			err = deleteFile(folder, action.Filename)
-			generatedCode = "Successfully deleted file " + action.Filename
+			result = "Successfully deleted file " + action.Filename
 		case "list_files":
-			generatedCode, err = listFiles(action.Filename)
+			result, err = listFiles(action.Filename)
 		}
 	}
-	return generatedCode, err
+	return result, err
 }
 
 func writeToFile(baseDir, filename, content string) error {
@@ -77,6 +77,14 @@ func deleteFile(baseDir, filename string) error {
 }
 
 func listFiles(baseDir string) (string, error) {
+	if baseDir == "" {
+		var err error
+		baseDir, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+
 	var files string
 	baseDir = filepath.Clean(baseDir)
 	err := filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {

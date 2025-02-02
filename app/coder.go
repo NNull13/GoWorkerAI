@@ -21,7 +21,7 @@ type Coder struct {
 }
 
 func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool,
-	maxIterations int, actions map[string]string) Coder {
+	maxIterations int, actions map[string]string, folder string) Coder {
 	for key, action := range defaultActions {
 		if _, exists := actions[key]; !exists {
 			actions[key] = action
@@ -39,6 +39,7 @@ func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules,
 		TestStyles:       testStyles,
 		MaxIterations:    maxIterations,
 		Actions:          actions,
+		Folder:           folder,
 	}
 }
 
@@ -80,19 +81,32 @@ func (c Coder) PromptPlan() []Message {
 	}
 }
 
-func (c Coder) PromptCodeGeneration(plan, generatedCode string) []Message {
+func (c Coder) PromptCodeGeneration(plan string, executedActions []Action) []Message {
 	var actionsDescription string
 	for action, description := range c.Actions {
 		actionsDescription += fmt.Sprintf("- `%s`: %s\n", action, description)
 	}
 
+	var executedActionsSummary string
+	for i, act := range executedActions {
+		executedActionsSummary += fmt.Sprintf("Iteration %d:\n", i+1)
+		executedActionsSummary += fmt.Sprintf("  - Action: %s\n", act.Action)
+		if act.Filename != "" {
+			executedActionsSummary += fmt.Sprintf("  - Filename: %s\n", act.Filename)
+		}
+		if act.Content != "" {
+			executedActionsSummary += fmt.Sprintf("  - Content: %s\n", act.Content)
+		}
+		executedActionsSummary += "\n"
+	}
+
 	systemPrompt := fmt.Sprintf(
 		`You are a software engineer AI. Generate Go code based on the given plan.
 		Your responses must be in JSON format, using the correct action according to the task.
-			
+		
 		### Available Actions:
 		%s
-			
+		
 		### JSON Output Format:
 		{
 		  "action": "<selected_action>",
@@ -101,11 +115,10 @@ func (c Coder) PromptCodeGeneration(plan, generatedCode string) []Message {
 		}
 		
 		### Task Details:
-		- **Plan:** 
+		- **Plan:**
 		%s
 		
-		Ensure that your response is structured as a valid JSON object. Never return plain text. 
-		If unsure about which action to use, default to "write_file".`,
+		Ensure that your response is structured as a valid JSON object. Never return plain text.`,
 		actionsDescription, plan)
 
 	return []Message{
@@ -115,13 +128,12 @@ func (c Coder) PromptCodeGeneration(plan, generatedCode string) []Message {
 		},
 		{
 			Role:    "user",
-			Content: fmt.Sprintf("Current Code:\n%s", generatedCode),
+			Content: fmt.Sprintf("### Executed Actions (Past Iterations):\n%s", executedActionsSummary),
 		},
 	}
 }
 
 func (c Coder) PromptValidation(plan string, actions []Action) []Message {
-	// Build a summary of all actions from past iterations.
 	var actionsSummary string
 	for i, act := range actions {
 		actionsSummary += fmt.Sprintf("Iteration %d:\n", i+1)

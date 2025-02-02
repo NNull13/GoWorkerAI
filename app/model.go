@@ -22,6 +22,7 @@ type Action struct {
 	Action   string `json:"action"`
 	Filename string `json:"filename,omitempty"`
 	Content  string `json:"content,omitempty"`
+	Result   string `json:"result,omitempty"`
 }
 
 type requestPayload struct {

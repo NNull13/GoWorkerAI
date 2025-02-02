@@ -45,19 +45,18 @@ func (r *Runtime) Run() {
 	logFile := filepath.Join(logsFolder, time.Now().Format("20060102")+".log")
 
 	var validationResult bool
-	var generatedCode string
 	for i := 0; i <= r.coder.MaxIterations; i++ {
 		fmt.Println("Processing:", r.coder.Task)
 
 		var action *Action
-		promptWorker := r.coder.PromptCodeGeneration(plan, generatedCode)
+		promptWorker := r.coder.PromptCodeGeneration(plan, r.actions)
 		if action, err = r.model.Process(promptWorker); err != nil {
 			log.Printf("Error processing action: %s | Action: %v", err, action)
 			continue
 		}
 
-		log.Printf("Processing action: %s | Action: %v", action, action)
-		generatedCode, err = ExecuteAction(action, runtimeFolder)
+		log.Printf("Processing action: %s | Action: %v", action.Action, action)
+		action.Result, err = ExecuteAction(action, runtimeFolder)
 		if err != nil {
 			log.Panicf("Error executing action: %s | Action: %v", err, action)
 		}
