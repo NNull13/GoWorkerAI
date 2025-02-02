@@ -1,41 +1,36 @@
-package app
+package workers
 
 import (
 	"fmt"
 	"strings"
+
+	"GoEngineerAI/app/actions"
+	"GoEngineerAI/app/models"
 )
 
 type Coder struct {
-	Language         string
-	Task             string
-	ProblemToSolve   string
-	Risks            []string
-	CodeStyles       []string
-	AcceptConditions []string
-	Rules            []string
-	Tests            bool
-	TestStyles       []string
-	MaxIterations    int
-	LockFolder       bool
-	Folder           string
-	Actions          map[string]string
+	Worker
+	Language       string
+	ProblemToSolve string
+	Risks          []string
+	CodeStyles     []string
+	Tests          bool
+	TestStyles     []string
 }
 
 func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool,
 	maxIterations int, folder string, lockFolder bool) Coder {
 	return Coder{
-		Language:         language,
-		Task:             task,
-		Risks:            risks,
-		CodeStyles:       codeStyles,
-		AcceptConditions: acceptConditions,
-		Rules:            rules,
-		Tests:            tests,
-		TestStyles:       testStyles,
-		MaxIterations:    maxIterations,
-		Folder:           folder,
-		LockFolder:       lockFolder,
-		Actions:          defaultActions,
+		Worker: Worker{
+			Task: task, AcceptConditions: acceptConditions,
+			Rules: rules, MaxIterations: maxIterations,
+			LockFolder: lockFolder, Folder: folder, Actions: actions.DefaultActions,
+		},
+		Language:   language,
+		Risks:      risks,
+		CodeStyles: codeStyles,
+		Tests:      tests,
+		TestStyles: testStyles,
 	}
 }
 
@@ -53,7 +48,7 @@ func (c Coder) TaskInformation() string {
 	return sb.String()
 }
 
-func (c Coder) PromptPlan() []Message {
+func (c Coder) PromptPlan() []models.Message {
 	var sysBuilder strings.Builder
 	sysBuilder.WriteString("You are an expert software engineer tasked with planning the implementation of a coding task. ")
 	sysBuilder.WriteString("Analyze the given problem and generate a structured, step-by-step development plan.\n\n")
@@ -68,20 +63,20 @@ func (c Coder) PromptPlan() []Message {
 	sysBuilder.WriteString("1. [Step 1]\n2. [Step 2]\n... \nN. [Final step]\n\n")
 	sysBuilder.WriteString("Do **NOT** write any code at this stage; focus solely on planning.")
 
-	systemMessage := Message{
+	systemMessage := models.Message{
 		Role:    "system",
 		Content: sysBuilder.String(),
 	}
 
-	userMessage := Message{
+	userMessage := models.Message{
 		Role:    "user",
 		Content: c.TaskInformation(),
 	}
 
-	return []Message{systemMessage, userMessage}
+	return []models.Message{systemMessage, userMessage}
 }
 
-func (c Coder) PromptCodeGeneration(plan string, executedActions []Action) []Message {
+func (c Coder) PromptNextAction(plan string, executedActions []models.Action) []models.Message {
 	var actionsDescBuilder strings.Builder
 	for action, description := range c.Actions {
 		actionsDescBuilder.WriteString(fmt.Sprintf("- `%s`: %s\n", action, description))
@@ -123,13 +118,13 @@ func (c Coder) PromptCodeGeneration(plan string, executedActions []Action) []Mes
 		plan, executedActionsBuilder.String(),
 	)
 
-	return []Message{
+	return []models.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 }
 
-func (c Coder) PromptValidation(plan string, actions []Action) []Message {
+func (c Coder) PromptValidation(plan string, actions []models.Action) []models.Message {
 	var actionsSummaryBuilder strings.Builder
 	for i, act := range actions {
 		actionsSummaryBuilder.WriteString(fmt.Sprintf("Iteration %d:\n", i+1))
@@ -143,7 +138,7 @@ func (c Coder) PromptValidation(plan string, actions []Action) []Message {
 		actionsSummaryBuilder.WriteString("\n")
 	}
 
-	systemMessage := Message{
+	systemMessage := models.Message{
 		Role: "system",
 		Content: "You are a strict validation AI responsible for verifying if the generated code fully meets all task requirements.\n\n" +
 			"### **Output Format (One Character Response Only):**\n" +
@@ -152,7 +147,7 @@ func (c Coder) PromptValidation(plan string, actions []Action) []Message {
 			"If the code fails validation (\"false\"), the system will iterate until all conditions are met.",
 	}
 
-	userMessage := Message{
+	userMessage := models.Message{
 		Role: "user",
 		Content: fmt.Sprintf(
 			"### **Development Plan:**\n%s\n\n### **Context / Current Status / Iterations:**\n%s\n\n"+
@@ -161,7 +156,7 @@ func (c Coder) PromptValidation(plan string, actions []Action) []Message {
 		),
 	}
 
-	return []Message{
+	return []models.Message{
 		systemMessage,
 		userMessage,
 	}

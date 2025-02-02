@@ -1,7 +1,7 @@
 
-# GoEngineerAI
+# GoWorkerAI
 
-GoEngineerAI is an  AI-powered engineer assistant built in Go. It aims to help developers automate engineering tasks, generate code, and provide intelligent suggestions to streamline development workflows and enhance productivity.
+GoWorkerAI is an AI-powered worker builder in Go. It aims to help developers automate tasks
 
 ---
 
@@ -11,7 +11,7 @@ GoEngineerAI is an  AI-powered engineer assistant built in Go. It aims to help d
    open a terminal and run the following commands:
 
    ```bash
-   git clone https://github.com/NNull13/GoEngineerAI.git
+   git clone https://github.com/NNull13/GoWorkerAI.git
    cd GoEngineerAI
    ```
 

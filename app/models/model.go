@@ -1,4 +1,4 @@
-package app
+package models
 
 import (
 	"encoding/json"
@@ -7,26 +7,15 @@ import (
 	"log"
 	"strings"
 
+	"GoEngineerAI/app/restclient"
 	"GoEngineerAI/app/utils"
 )
 
 const endpoint = "/v1/chat/completions"
 const model = "qwen2.5-coder-7b-instruct"
 
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type Action struct {
-	Action   string `json:"action"`
-	Filename string `json:"filename,omitempty"`
-	Content  string `json:"content,omitempty"`
-	Result   string `json:"result,omitempty"`
-}
-
 type requestPayload struct {
-	Model       string    `json:"model"`
+	Model       string    `json:"models"`
 	Messages    []Message `json:"messages"`
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens"`
@@ -37,7 +26,7 @@ type responseLLM struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
-	Model   string `json:"model"`
+	Model   string `json:"models"`
 	Choices []struct {
 		Index        int     `json:"index"`
 		Logprobs     *string `json:"logprobs"`
@@ -52,17 +41,17 @@ type responseLLM struct {
 	SystemFingerprint string `json:"system_fingerprint"`
 }
 
-type ModelClient struct {
-	restClient *utils.RestClient
+type LMStudioClient struct {
+	restClient *restclient.RestClient
 }
 
-func NewModelClient() *ModelClient {
-	return &ModelClient{
-		restClient: utils.NewRestClient("http://localhost:1234", nil),
+func NewLMStudioClient() *LMStudioClient {
+	return &LMStudioClient{
+		restClient: restclient.NewRestClient("http://localhost:1234", nil),
 	}
 }
 
-func (mc *ModelClient) Think(messages []Message) (string, error) {
+func (mc *LMStudioClient) Think(messages []Message) (string, error) {
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
@@ -82,7 +71,7 @@ func (mc *ModelClient) Think(messages []Message) (string, error) {
 	return generatedResponse.Choices[0].Message.Content, nil
 }
 
-func (mc *ModelClient) Process(messages []Message) (*Action, error) {
+func (mc *LMStudioClient) Process(messages []Message) (*Action, error) {
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
@@ -121,7 +110,7 @@ func (mc *ModelClient) Process(messages []Message) (*Action, error) {
 	return &action, nil
 }
 
-func (mc *ModelClient) YesOrNo(messages []Message, retry int) (bool, error) {
+func (mc *LMStudioClient) YesOrNo(messages []Message, retry int) (bool, error) {
 	systemPrompt := Message{
 		Role:    "system",
 		Content: "Answer only with 'true' for yes or 'false' for no. No additional text.",
@@ -135,7 +124,7 @@ func (mc *ModelClient) YesOrNo(messages []Message, retry int) (bool, error) {
 		MaxTokens:   1,
 	}
 
-	generatedResponse, err := mc.sendRequestAndParse(payload, 3)
+	generatedResponse, err := mc.sendRequestAndParse(payload, retry)
 	if err != nil {
 		return false, err
 	}
@@ -147,7 +136,7 @@ func (mc *ModelClient) YesOrNo(messages []Message, retry int) (bool, error) {
 	return cleanedResponse == "true", err
 }
 
-func (mc *ModelClient) sendRequestAndParse(payload requestPayload, retry int) (*responseLLM, error) {
+func (mc *LMStudioClient) sendRequestAndParse(payload requestPayload, retry int) (*responseLLM, error) {
 	var err error
 	var response []byte
 	var status int

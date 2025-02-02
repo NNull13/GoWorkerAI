@@ -1,4 +1,4 @@
-package utils
+package restclient
 
 import (
 	"bytes"

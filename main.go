@@ -4,25 +4,27 @@ import (
 	"fmt"
 	"sync"
 
-	"GoEngineerAI/app"
+	"GoEngineerAI/app/models"
+	"GoEngineerAI/app/runtime"
+	"GoEngineerAI/app/workers"
 )
 
 func main() {
-	var runtimes []*app.Runtime
-	modelClient := app.NewModelClient()
-	coders := []app.Coder{
+	var runtimes []*runtime.Runtime
+	modelClient := models.NewLMStudioClient()
+	coders := []workers.Coder{
 		coderCustom,
 	}
 
 	var wg sync.WaitGroup
 
 	for _, coder := range coders {
-		runtimes = append(runtimes, app.NewRuntime(coder, modelClient))
+		runtimes = append(runtimes, runtime.NewRuntime(&coder, modelClient))
 	}
 
 	for _, r := range runtimes {
 		wg.Add(1)
-		go func(rt *app.Runtime) {
+		go func(rt *runtime.Runtime) {
 			defer wg.Done()
 			rt.Run()
 		}(r)

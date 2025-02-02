@@ -1,8 +1,10 @@
 package main
 
-import "GoEngineerAI/app"
+import (
+	"GoEngineerAI/app/workers"
+)
 
-var coderSample = app.NewCoder(
+var coderSample = workers.NewCoder(
 	"Go",
 	"Implement a monolithic HTTP server in a single file.Develop a single-file Go HTTP server that handles multiple routes and logs all requests",
 	[]string{
@@ -33,12 +35,11 @@ var coderSample = app.NewCoder(
 	false,
 )
 
-var coderCustom = app.NewCoder(
+var coderCustom = workers.NewCoder(
 	"Go",
 	`Your task is to review the code in root and then generate complete test files (i.e., *_test.go) without modifying any existing code files.
 	List files of root and read each for each to create the test go file covering all the code to test the functionality
-	Objective: List all the files and validate the project's functionality with robust and exhaustive tests.
-	Read file restclient.go inside the folder named utils inside the folder app, and create the file restclient_test.go `,
+	Objective: List all the files and validate the project's functionality with robust and exhaustive tests.`,
 	[]string{},
 	[]string{},
 	[]string{},

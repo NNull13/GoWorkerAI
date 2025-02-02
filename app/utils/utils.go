@@ -3,8 +3,12 @@ package utils
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/xlab/treeprint"
 )
 
 func RemoveSubstring(input string, start, end int) string {
@@ -40,4 +44,37 @@ func UnescapeIfNeeded(s string) string {
 		return unescaped
 	}
 	return s
+}
+
+func BuildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) (string, error) {
+	if tree == nil {
+		tree = treeprint.New()
+		tree.SetValue(filepath.Base(dir))
+	}
+	if skipDirs == nil {
+		skipDirs = map[string]bool{
+			".git":  true,
+			".idea": true,
+			"logs":  true,
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if skipDirs[entry.Name()] {
+				continue
+			}
+			branch := tree.AddBranch(entry.Name())
+			_, err = BuildTree(filepath.Join(dir, entry.Name()), branch, skipDirs)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			tree.AddNode(entry.Name())
+		}
+	}
+	return tree.String(), nil
 }
