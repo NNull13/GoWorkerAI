@@ -17,9 +17,11 @@ type Coder struct {
 	MaxIterations    int
 	Actions          map[string]string
 	LockFolder       bool
+	Folder           string
 }
 
-func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool, maxIterations int, actions map[string]string) Coder {
+func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool,
+	maxIterations int, actions map[string]string) Coder {
 	for key, action := range defaultActions {
 		if _, exists := actions[key]; !exists {
 			actions[key] = action
@@ -118,7 +120,21 @@ func (c Coder) PromptCodeGeneration(plan, generatedCode string) []Message {
 	}
 }
 
-func (c Coder) PromptValidation(plan, generatedCode string) []Message {
+func (c Coder) PromptValidation(plan string, actions []Action) []Message {
+	// Build a summary of all actions from past iterations.
+	var actionsSummary string
+	for i, act := range actions {
+		actionsSummary += fmt.Sprintf("Iteration %d:\n", i+1)
+		actionsSummary += fmt.Sprintf("  - Action: %s\n", act.Action)
+		if act.Filename != "" {
+			actionsSummary += fmt.Sprintf("  - Filename: %s\n", act.Filename)
+		}
+		if act.Content != "" {
+			actionsSummary += fmt.Sprintf("  - Content: %s\n", act.Content)
+		}
+		actionsSummary += "\n"
+	}
+
 	return []Message{
 		{
 			Role: "system",
@@ -126,21 +142,21 @@ func (c Coder) PromptValidation(plan, generatedCode string) []Message {
 				c.TaskInformation()+
 				"### **Development Plan :**\n", plan, "\n\n"+
 				"### **Instructions:**\n"+
-				"1. Compare the `", generatedCode, "` against the Task and **Development Plan**, ensuring all conditions are met.\n"+
-				"2. Validate that the code:\n"+
+				"1. Compare the listed actions against the Task and **Development Plan**, ensuring all conditions are met.\n"+
+				"2. Validate that the implementation:\n"+
 				"   - **Fulfills the Task**: `", c.Task, "`\n"+
 				"   - **Mitigates all Risks**: `", c.Risks, "`\n"+
 				"   - **Follows the coding style**: `", c.CodeStyles, "`\n"+
 				"   - **Respects all mandatory Rules**: `", c.Rules, "`\n"+
 				"   - **Implements required Tests** (if `", c.Tests, "` = true and follows `", c.TestStyles, "`)\n"+
 				"### **Output Format (Strictly One Character Response):**\n"+
-				"- \"true\" → The implementation fully meets all criteria.\n"+
-				"- \"false\" → The implementation is incorrect or incomplete.\n\n"+
-				"If the code fails validation (`\"false\"`), the system will **iterate** until the code meets all conditions.\n"),
+				"- \"true\" → The task fully meets all criteria.\n"+
+				"- \"false\" → The task is incorrect or incomplete.\n\n"+
+				"If the code fails validation (`\"false\"`), the system will **iterate** until the task meets all conditions.\n"),
 		},
 		{
 			Role:    "user",
-			Content: "### **Generated Code / Current status / Current code:**\n" + generatedCode,
+			Content: "### **Actions / Current Status / Iterations:**\n" + actionsSummary,
 		},
 	}
 }

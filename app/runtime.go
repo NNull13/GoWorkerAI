@@ -9,8 +9,9 @@ import (
 )
 
 type Runtime struct {
-	coder Coder
-	model *ModelClient
+	coder   Coder
+	model   *ModelClient
+	actions []Action
 }
 
 func NewRuntime(coder Coder, model *ModelClient) *Runtime {
@@ -28,17 +29,17 @@ func (r *Runtime) Run() {
 	}
 	fmt.Println("Generated Plan:\n", plan)
 
-	var generationFolder string
+	runtimeFolder := r.coder.Folder
 	if r.coder.LockFolder {
-		folderName := time.Now().Format("20060102_150405")
-		generationFolder = filepath.Join("generations", folderName)
-		if err = os.MkdirAll(generationFolder, os.ModePerm); err != nil {
-			log.Fatalf("Error creating generation directory %s: %v", generationFolder, err)
+		folderName := r.coder.Folder + time.Now().Format("20060102_150405")
+		runtimeFolder = filepath.Join("generations", folderName)
+		if err = os.MkdirAll(runtimeFolder, os.ModePerm); err != nil {
+			log.Fatalf("Error creating generation directory %s: %v", runtimeFolder, err)
 		}
 	}
 
 	logsFolder := "logs"
-	if err := os.MkdirAll(logsFolder, os.ModePerm); err != nil {
+	if err = os.MkdirAll(logsFolder, os.ModePerm); err != nil {
 		log.Fatalf("Error creating logs directory %s: %v", logsFolder, err)
 	}
 	logFile := filepath.Join(logsFolder, time.Now().Format("20060102")+".log")
@@ -48,19 +49,22 @@ func (r *Runtime) Run() {
 	for i := 0; i <= r.coder.MaxIterations; i++ {
 		fmt.Println("Processing:", r.coder.Task)
 
+		var action *Action
 		promptWorker := r.coder.PromptCodeGeneration(plan, generatedCode)
-		action, err := r.model.Process(promptWorker)
-		if err != nil {
+		if action, err = r.model.Process(promptWorker); err != nil {
 			log.Printf("Error processing action: %s | Action: %v", err, action)
 			continue
 		}
 
 		log.Printf("Processing action: %s | Action: %v", action, action)
-		generatedCode = ActionSwitch(action, generationFolder)
-
-		promptValidation := r.coder.PromptValidation(plan, generatedCode)
-		validationResult, err = r.model.YesOrNo(promptValidation, 3)
+		generatedCode, err = ExecuteAction(action, runtimeFolder)
 		if err != nil {
+			log.Panicf("Error executing action: %s | Action: %v", err, action)
+		}
+		r.actions = append(r.actions, *action)
+
+		promptValidation := r.coder.PromptValidation(plan, r.actions)
+		if validationResult, err = r.model.YesOrNo(promptValidation, 3); err != nil {
 			log.Printf("Validation error: %v", err)
 		}
 

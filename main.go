@@ -45,35 +45,61 @@ func main() {
 		*/
 		app.NewCoder(
 			"Go",
-			"I need you to generate both unit and integration tests for my Go project.First of all get the list of files in app folder, Must review only the code in the folder use list_files in app .Never update code files, only create and edit test files Please ensure the tests meet the following requirements and constraints:\n\nTask: Execute Comprehensive Automated Testing\nObjective: Validate the project's functionality through robust unit and integration tests.\n\nRequirements:\n\nWrite tests that cover all critical code paths.\nFollow best practices for unit and integration testing in Go.\nEnsure proper error handling in test cases.\nAll tests must pass before deployment.\nContinuous integration should verify the test results.\nTest logs must include relevant debugging information.\nTechnical Constraints:\n\nUse the Go testing package for unit tests.\nUtilize httptest for HTTP handler tests.\nImplement table-driven tests and organize them using t.Run() with descriptive scenario names.\nUse the testify package for assertions when appropriate.\nInclude proper test teardown and cleanup routines.\nIntegrate with CI/CD pipelines for automated testing.\nImportant: Do not modify the go.mod file or any existing code files—only create or modify test files (i.e., *_test.go).\nAdditional Guidance:\n\nIf the code involves external dependencies (such as databases or external APIs), simulate these dependencies using mocks (for example, with gomock).\nEnsure the tests cover scenarios including successful execution, error cases, integration issues, and edge cases like flaky tests.\nPlease generate complete test files that are ready to run with go test.",
+			`Generate comprehensive unit and integration tests for my Go project. The project's entire code resides in the "app" folder. Your task is to review only the code within this folder (using the "list_files" functionality) and then generate complete test files (i.e., *_test.go) without modifying any existing code files or the go.mod file.
+			Task: Execute Comprehensive Automated Testing  
+			Objective: Validate the project's functionality with robust and exhaustive tests.
+			
+			Requirements:
+			- Write tests that cover all critical code paths.
+			- Follow best practices for unit and integration testing in Go.
+			- Ensure robust error handling in test cases.
+			- All tests must pass before deployment.
+			- Continuous integration should automatically verify test results.
+			- Test logs must include detailed debugging information.
+			
+			Technical Constraints:
+			- Use Go's built-in testing package for unit tests.
+			- Utilize httptest for testing HTTP handlers.
+			- Implement table-driven tests and organize them using t.Run() with descriptive scenario names.
+			- Use the testify package for assertions where appropriate.
+			- Include proper test teardown and cleanup routines.
+			- Integrate with CI/CD pipelines for automated testing.
+			
+			Important:
+			- Do not modify the go.mod file or any existing code files—only create or update test files.
+			
+			Additional Guidance:
+			- Ensure tests cover scenarios including successful execution, error cases, integration issues, and edge cases such as flaky tests.
+			- The tests should be ready to run with 'go test'.
+			
+			Please generate complete test files that fully meet these requirements.`,
 			[]string{
-				"Tests failing due to unexpected errors.",
-				"Integration issues between modules.",
+				"Tests are failing due to unexpected errors.",
+				"Integration issues between modules are present.",
 				"Incomplete test coverage.",
 				"Flaky tests causing inconsistent results.",
 			},
 			[]string{
 				"Write tests that cover all critical code paths.",
 				"Follow best practices for unit and integration testing in Go.",
-				"Ensure proper error handling in test cases.",
+				"Implement robust error handling in test cases.",
 			},
 			[]string{
 				"All tests must pass before deployment.",
 				"Continuous integration should verify test results.",
-				"Test logs must include relevant debugging information.",
+				"Test logs must include detailed debugging information.",
 			},
 			[]string{
-				"Use the `testing` package for unit tests.",
-				"Utilize `httptest` for HTTP handler tests.",
-				"Implement test teardown and cleanup routines.",
-				"Never update go.mod",
-				"First of all get the list of files in app folder",
+				"Utilize the testing package for unit tests.",
+				"Use httptest for HTTP handler testing.",
+				"Implement proper test teardown and cleanup routines.",
+				"Do not modify go.mod.",
+				"Review only files in the 'app' folder using the list_files feature.",
 			},
 			[]string{
 				"Integrate with CI/CD pipelines for automated testing.",
-				"Use testify and test scenarios",
-				"Table driven tests",
-				"r.Run() using name in scenarios",
+				"Use testify for assertions and organize tests using table-driven scenarios.",
+				"Leverage t.Run() with descriptive scenario names.",
 			},
 			true,
 			5,

@@ -14,29 +14,28 @@ var defaultActions = map[string]string{
 	"list_files":  "Use this action to list all files within a directory.",
 }
 
-func ActionSwitch(action *Action, folder string) string {
-	var generatedCode string
+func ExecuteAction(action *Action, folder string) (generatedCode string, err error) {
 	if action != nil {
 		switch action.Action {
 		case "write_file":
-			writeToFile(folder, action.Filename, action.Content)
-			generatedCode = action.Content
+			err = writeToFile(folder, action.Filename, action.Content)
+			generatedCode = "Successfully wrote file " + action.Filename
 		case "read_file":
-			generatedCode = readFile(folder, action.Filename)
+			generatedCode, err = readFile(folder, action.Filename)
 		case "edit_file":
-			editFile(folder, action.Filename, action.Content)
-			generatedCode = readFile(folder, action.Filename)
+			err = editFile(folder, action.Filename, action.Content)
+			generatedCode = "Successfully edited file " + action.Filename
 		case "delete_file":
-			deleteFile(folder, action.Filename)
+			err = deleteFile(folder, action.Filename)
 			generatedCode = "Successfully deleted file " + action.Filename
 		case "list_files":
-			generatedCode = listFiles(action.Filename)
+			generatedCode, err = listFiles(action.Filename)
 		}
 	}
-	return generatedCode
+	return generatedCode, err
 }
 
-func writeToFile(baseDir, filename, content string) {
+func writeToFile(baseDir, filename, content string) error {
 	path := filepath.Join(baseDir, filename)
 	err := os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
@@ -44,25 +43,29 @@ func writeToFile(baseDir, filename, content string) {
 	} else {
 		log.Printf("✅ File %s written successfully.\n", path)
 	}
+	return err
 }
 
-func readFile(baseDir, filename string) string {
+func readFile(baseDir, filename string) (string, error) {
 	path := filepath.Join(baseDir, filename)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("Error reading file %s: %v\n", path, err)
-		return ""
+		return "", err
 	}
-	return string(content)
+	return string(content), nil
 }
 
-func editFile(baseDir, filename, newContent string) {
-	existingContent := readFile(baseDir, filename)
+func editFile(baseDir, filename, newContent string) error {
+	existingContent, err := readFile(baseDir, filename)
+	if err != nil {
+		return err
+	}
 	mergedContent := existingContent + "\n" + newContent
-	writeToFile(baseDir, filename, mergedContent)
+	return writeToFile(baseDir, filename, mergedContent)
 }
 
-func deleteFile(baseDir, filename string) {
+func deleteFile(baseDir, filename string) error {
 	path := filepath.Join(baseDir, filename)
 	err := os.Remove(path)
 	if err != nil {
@@ -70,9 +73,10 @@ func deleteFile(baseDir, filename string) {
 	} else {
 		log.Printf("✅ File %s deleted successfully.\n", path)
 	}
+	return err
 }
 
-func listFiles(baseDir string) string {
+func listFiles(baseDir string) (string, error) {
 	var files string
 	baseDir = filepath.Clean(baseDir)
 	err := filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
@@ -89,5 +93,5 @@ func listFiles(baseDir string) string {
 		log.Printf("Error walking through directory %s: %v\n", baseDir, err)
 	}
 
-	return files
+	return files, err
 }
