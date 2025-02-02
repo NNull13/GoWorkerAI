@@ -12,7 +12,7 @@ GoWorkerAI is an AI-powered worker builder in Go. It aims to help developers aut
 
    ```bash
    git clone https://github.com/NNull13/GoWorkerAI.git
-   cd GoEngineerAI
+   cd GoWorkerAI
    ```
 
 2. **install dependencies**  

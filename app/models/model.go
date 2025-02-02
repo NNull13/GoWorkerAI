@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
-	"GoEngineerAI/app/restclient"
-	"GoEngineerAI/app/utils"
+	"GoWorkerAI/app/restclient"
+	"GoWorkerAI/app/utils"
 )
 
 const endpoint = "/v1/chat/completions"
@@ -43,6 +44,7 @@ type responseLLM struct {
 
 type LMStudioClient struct {
 	restClient *restclient.RestClient
+	mu         sync.Mutex // Mutex to prevent concurrent model requests
 }
 
 func NewLMStudioClient() *LMStudioClient {
@@ -52,6 +54,9 @@ func NewLMStudioClient() *LMStudioClient {
 }
 
 func (mc *LMStudioClient) Think(messages []Message) (string, error) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
@@ -71,7 +76,10 @@ func (mc *LMStudioClient) Think(messages []Message) (string, error) {
 	return generatedResponse.Choices[0].Message.Content, nil
 }
 
-func (mc *LMStudioClient) Process(messages []Message) (*Action, error) {
+func (mc *LMStudioClient) Process(messages []Message) (*ActionTask, error) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
@@ -83,6 +91,7 @@ func (mc *LMStudioClient) Process(messages []Message) (*Action, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Generated response: %s", generatedResponse.Choices[0].Message.Content)
 
 	rawContent := strings.TrimSpace(generatedResponse.Choices[0].Message.Content)
 	rawContent = strings.ReplaceAll(rawContent, "```json", "")
@@ -98,7 +107,7 @@ func (mc *LMStudioClient) Process(messages []Message) (*Action, error) {
 		rawContent = utils.RemoveSubstring(rawContent, start, end)
 	}
 
-	var action Action
+	var action ActionTask
 	if err = json.Unmarshal([]byte(rawContent), &action); err != nil {
 		return nil, fmt.Errorf("failed to parse response as JSON: %w response: %s", err, rawContent)
 	}
@@ -111,6 +120,9 @@ func (mc *LMStudioClient) Process(messages []Message) (*Action, error) {
 }
 
 func (mc *LMStudioClient) YesOrNo(messages []Message, retry int) (bool, error) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	systemPrompt := Message{
 		Role:    "system",
 		Content: "Answer only with 'true' for yes or 'false' for no. No additional text.",

@@ -1,16 +1,23 @@
 package workers
 
-type Worker struct {
+type Task struct {
 	Task             string
 	AcceptConditions []string
-	Rules            []string
 	MaxIterations    int
-	LockFolder       bool
-	Folder           string
-	Actions          map[string]string
 }
 
-func (w *Worker) GetTask() (task string) {
+type Worker struct {
+	Task       *Task
+	Rules      []string
+	LockFolder bool
+	Folder     string
+}
+
+func (w *Worker) SetTask(task *Task) {
+	w.Task = task
+}
+
+func (w *Worker) GetTask() (task *Task) {
 	if w != nil {
 		task = w.Task
 	}
@@ -25,11 +32,4 @@ func (w *Worker) GetFolder() (folder string) {
 }
 func (w *Worker) GetLockFolder() bool {
 	return w != nil && w.LockFolder
-}
-
-func (w *Worker) GetMaxIterations() (maxIterations int) {
-	if w != nil {
-		maxIterations = w.MaxIterations
-	}
-	return
 }

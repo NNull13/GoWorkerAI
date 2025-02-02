@@ -4,33 +4,25 @@ import (
 	"fmt"
 	"strings"
 
-	"GoEngineerAI/app/actions"
-	"GoEngineerAI/app/models"
+	"GoWorkerAI/app/actions"
+	"GoWorkerAI/app/models"
 )
 
 type Coder struct {
 	Worker
-	Language       string
-	ProblemToSolve string
-	Risks          []string
-	CodeStyles     []string
-	Tests          bool
-	TestStyles     []string
+	Language   string
+	CodeStyles []string
+	Tests      bool
+	TestStyles []string
 }
 
-func NewCoder(language, task string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool,
-	maxIterations int, folder string, lockFolder bool) Coder {
-	return Coder{
+func NewCoder(language, task string, codeStyles, acceptConditions, rules, testStyles []string, tests bool,
+	maxIterations int, folder string, lockFolder bool) *Coder {
+	return &Coder{
 		Worker: Worker{
-			Task: task, AcceptConditions: acceptConditions,
-			Rules: rules, MaxIterations: maxIterations,
-			LockFolder: lockFolder, Folder: folder, Actions: actions.DefaultActions,
-		},
-		Language:   language,
-		Risks:      risks,
-		CodeStyles: codeStyles,
-		Tests:      tests,
-		TestStyles: testStyles,
+			Task:  &Task{Task: task, AcceptConditions: acceptConditions, MaxIterations: maxIterations},
+			Rules: rules, LockFolder: lockFolder, Folder: folder},
+		Language: language, CodeStyles: codeStyles, Tests: tests, TestStyles: testStyles,
 	}
 }
 
@@ -38,10 +30,9 @@ func (c Coder) TaskInformation() string {
 	var sb strings.Builder
 	sb.WriteString("### **Task Information:**\n")
 	sb.WriteString(fmt.Sprintf("- **Programming Language:** %s\n", c.Language))
-	sb.WriteString(fmt.Sprintf("- **Main Task:** %s\n", c.Task))
-	sb.WriteString(fmt.Sprintf("- **Potential Risks:** %v (Challenges to be considered)\n", c.Risks))
+	sb.WriteString(fmt.Sprintf("- **Main Task:** %s\n", c.Task.Task))
 	sb.WriteString(fmt.Sprintf("- **Code Style Preferences:** %v (Standards to follow)\n", c.CodeStyles))
-	sb.WriteString(fmt.Sprintf("- **Accepted Conditions:** %v (Requirements to be met)\n", c.AcceptConditions))
+	sb.WriteString(fmt.Sprintf("- **Accepted Conditions:** %v (Requirements to be met)\n", c.Task.AcceptConditions))
 	sb.WriteString(fmt.Sprintf("- **Development Rules:** %v (Mandatory constraints)\n", c.Rules))
 	sb.WriteString(fmt.Sprintf("- **Requires Tests?** %v\n", c.Tests))
 	sb.WriteString(fmt.Sprintf("- **Test Styles:** %v (If tests are required)\n", c.TestStyles))
@@ -76,15 +67,15 @@ func (c Coder) PromptPlan() []models.Message {
 	return []models.Message{systemMessage, userMessage}
 }
 
-func (c Coder) PromptNextAction(plan string, executedActions []models.Action) []models.Message {
+func (c Coder) PromptNextAction(plan string, actions []actions.Action, executedActions []models.ActionTask) []models.Message {
 	var actionsDescBuilder strings.Builder
-	for action, description := range c.Actions {
-		actionsDescBuilder.WriteString(fmt.Sprintf("- `%s`: %s\n", action, description))
+	for _, action := range actions {
+		actionsDescBuilder.WriteString(fmt.Sprintf("- `%s`: %s\n", action.Key, action.Description))
 	}
 
 	var executedActionsBuilder strings.Builder
 	for i, act := range executedActions {
-		executedActionsBuilder.WriteString(fmt.Sprintf("Iteration %d:\n   - Action: %v\n", i+1, act))
+		executedActionsBuilder.WriteString(fmt.Sprintf("Iteration %d:\n   - ActionTask: %v\n", i+1, act))
 	}
 
 	systemPrompt := fmt.Sprintf(
@@ -124,11 +115,11 @@ func (c Coder) PromptNextAction(plan string, executedActions []models.Action) []
 	}
 }
 
-func (c Coder) PromptValidation(plan string, actions []models.Action) []models.Message {
+func (c Coder) PromptValidation(plan string, actions []models.ActionTask) []models.Message {
 	var actionsSummaryBuilder strings.Builder
 	for i, act := range actions {
 		actionsSummaryBuilder.WriteString(fmt.Sprintf("Iteration %d:\n", i+1))
-		actionsSummaryBuilder.WriteString(fmt.Sprintf("  - Action: %s\n", act.Action))
+		actionsSummaryBuilder.WriteString(fmt.Sprintf("  - ActionTask: %s\n", act.Action))
 		if act.Filename != "" {
 			actionsSummaryBuilder.WriteString(fmt.Sprintf("  - Filename: %s\n", act.Filename))
 		}

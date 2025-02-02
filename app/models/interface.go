@@ -2,7 +2,7 @@ package models
 
 type Interface interface {
 	Think(messages []Message) (string, error)
-	Process(messages []Message) (*Action, error)
+	Process(messages []Message) (*ActionTask, error)
 	YesOrNo(messages []Message, retry int) (bool, error)
 }
 
@@ -11,7 +11,7 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-type Action struct {
+type ActionTask struct {
 	Action   string `json:"action"`
 	Filename string `json:"filename,omitempty"`
 	Content  string `json:"content,omitempty"`

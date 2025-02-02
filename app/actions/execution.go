@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"GoEngineerAI/app/models"
-	"GoEngineerAI/app/utils"
+	"GoWorkerAI/app/models"
+	"GoWorkerAI/app/utils"
 )
 
-func ExecuteAction(action *models.Action, folder string) (result string, err error) {
+func ExecuteFileAction(action *models.ActionTask, folder string) (result string, err error) {
 	if action != nil {
 		switch action.Action {
 		case write_file:
