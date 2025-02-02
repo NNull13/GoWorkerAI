@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"GoEngineerAI/utils"
+	utils2 "GoEngineerAI/app/utils"
 )
 
 const endpoint = "/v1/chat/completions"
@@ -52,12 +52,12 @@ type responseLLM struct {
 }
 
 type ModelClient struct {
-	restClient *utils.RestClient
+	restClient *utils2.RestClient
 }
 
 func NewModelClient() *ModelClient {
 	return &ModelClient{
-		restClient: utils.NewRestClient("http://localhost:1234", nil),
+		restClient: utils2.NewRestClient("http://localhost:1234", nil),
 	}
 }
 
@@ -105,8 +105,8 @@ func (mc *ModelClient) Process(messages []Message) (*Action, error) {
 	var contentAction string
 	if start != -1 && end != -1 && start < end {
 		contentAction = rawContent[start+len(marker)+1 : end-2]
-		contentAction = utils.UnescapeIfNeeded(contentAction)
-		rawContent = utils.RemoveSubstring(rawContent, start, end)
+		contentAction = utils2.UnescapeIfNeeded(contentAction)
+		rawContent = utils2.RemoveSubstring(rawContent, start, end)
 	}
 
 	var action Action

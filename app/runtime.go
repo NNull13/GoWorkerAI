@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"fmt"
@@ -13,7 +13,14 @@ type Runtime struct {
 	model *ModelClient
 }
 
-func (r Runtime) run() {
+func NewRuntime(coder Coder, model *ModelClient) *Runtime {
+	return &Runtime{
+		coder: coder,
+		model: model,
+	}
+}
+
+func (r *Runtime) Run() {
 	promptPlan := r.coder.PromptPlan()
 	plan, err := r.model.Think(promptPlan)
 	if err != nil {
@@ -21,10 +28,13 @@ func (r Runtime) run() {
 	}
 	fmt.Println("Generated Plan:\n", plan)
 
-	folderName := time.Now().Format("20060102_150405")
-	generationFolder := filepath.Join("generations", folderName)
-	if err := os.MkdirAll(generationFolder, os.ModePerm); err != nil {
-		log.Fatalf("Error creating generation directory %s: %v", generationFolder, err)
+	var generationFolder string
+	if r.coder.LockFolder {
+		folderName := time.Now().Format("20060102_150405")
+		generationFolder = filepath.Join("generations", folderName)
+		if err = os.MkdirAll(generationFolder, os.ModePerm); err != nil {
+			log.Fatalf("Error creating generation directory %s: %v", generationFolder, err)
+		}
 	}
 
 	logsFolder := "logs"
@@ -71,42 +81,6 @@ func (r Runtime) run() {
 			fmt.Println("✅ Task completed successfully:", r.coder.Task)
 			break
 		}
-	}
-}
-
-func writeToFile(baseDir, filename, content string) {
-	path := filepath.Join(baseDir, filename)
-	err := os.WriteFile(path, []byte(content), 0644)
-	if err != nil {
-		log.Printf("Error writing file %s: %v\n", path, err)
-	} else {
-		log.Printf("✅ File %s written successfully.\n", path)
-	}
-}
-
-func readFile(baseDir, filename string) string {
-	path := filepath.Join(baseDir, filename)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("Error reading file %s: %v\n", path, err)
-		return ""
-	}
-	return string(content)
-}
-
-func editFile(baseDir, filename, newContent string) {
-	existingContent := readFile(baseDir, filename)
-	mergedContent := existingContent + "\n" + newContent
-	writeToFile(baseDir, filename, mergedContent)
-}
-
-func deleteFile(baseDir, filename string) {
-	path := filepath.Join(baseDir, filename)
-	err := os.Remove(path)
-	if err != nil {
-		log.Printf("Error deleting file %s: %v\n", path, err)
-	} else {
-		log.Printf("✅ File %s deleted successfully.\n", path)
 	}
 }
 

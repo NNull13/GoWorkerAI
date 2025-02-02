@@ -1,8 +1,7 @@
-package main
+package app
 
 import (
 	"fmt"
-	"strings"
 )
 
 var defaultActions = map[string]string{
@@ -24,6 +23,7 @@ type Coder struct {
 	TestStyles       []string
 	MaxIterations    int
 	Actions          map[string]string
+	LockFolder       bool
 }
 
 func NewCoder(language, task, problemToSolve string, risks, codeStyles, acceptConditions, rules, testStyles []string, tests bool, minIterations, maxIterations int, actions map[string]string) Coder {
@@ -88,9 +88,9 @@ func (c Coder) PromptPlan() []Message {
 }
 
 func (c Coder) PromptCodeGeneration(plan, generatedCode string) []Message {
-	var actionsDescription strings.Builder
+	var actionsDescription string
 	for action, description := range c.Actions {
-		fmt.Fprintf(&actionsDescription, "- `%s`: %s\n", action, description)
+		actionsDescription += fmt.Sprintf("- `%s`: %s\n", action, description)
 	}
 
 	systemPrompt := fmt.Sprintf(
