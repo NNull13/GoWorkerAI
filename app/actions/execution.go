@@ -2,6 +2,7 @@ package actions
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -33,55 +34,88 @@ func ExecuteFileAction(action *models.ActionTask, folder string) (result string,
 
 func writeToFile(baseDir, filename, content string) error {
 	path := filepath.Join(baseDir, filename)
-	err := os.WriteFile(path, []byte(content), 0644)
-	if err != nil {
-		log.Printf("Error writing file %s: %v\n", path, err)
-	} else {
-		log.Printf("✅ File %s written successfully.\n", path)
+	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+		log.Printf("❌ Error creating directory for %s: %v\n", path, err)
+		return err
 	}
-	return err
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Printf("❌ Error opening file %s: %v\n", path, err)
+		return err
+	}
+
+	defer file.Close()
+	if _, err := file.WriteString(content); err != nil {
+		log.Printf("❌ Error writing to file %s: %v\n", path, err)
+		return err
+	}
+
+	log.Printf("✅ File %s written successfully.\n", path)
+	return nil
 }
 
 func readFile(baseDir, filename string) (string, error) {
 	path := filepath.Join(baseDir, filename)
 	content, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("Error reading file %s: %v\n", path, err)
+		if errors.Is(err, os.ErrNotExist) {
+			log.Printf("⚠️ File %s does not exist.\n", path)
+			return fmt.Sprintf("[ File %s was not found in path %s ]", filename, path), nil
+		}
+		log.Printf("❌ Error reading file %s: %v\n", path, err)
 		return "", err
 	}
 	return string(content), nil
 }
 
 func editFile(baseDir, filename, newContent string) error {
-	_, err := readFile(baseDir, filename)
-	if !errors.Is(err, os.ErrNotExist) {
+	path := filepath.Join(baseDir, filename)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Printf("❌ Error opening file %s for editing: %v\n", path, err)
 		return err
 	}
-	return writeToFile(baseDir, filename, newContent)
+
+	defer file.Close()
+	if _, err := file.WriteString(newContent); err != nil {
+		log.Printf("❌ Error writing new content to file %s: %v\n", path, err)
+		return err
+	}
+
+	log.Printf("✅ File %s edited successfully.\n", path)
+	return nil
 }
 
 func deleteFile(baseDir, filename string) error {
 	path := filepath.Join(baseDir, filename)
 	err := os.Remove(path)
 	if err != nil {
-		log.Printf("Error deleting file %s: %v\n", path, err)
-	} else {
-		log.Printf("✅ File %s deleted successfully.\n", path)
+		if errors.Is(err, os.ErrNotExist) {
+			log.Printf("⚠️ File %s does not exist, nothing to delete.\n", path)
+		} else {
+			log.Printf("❌ Error deleting file %s: %v\n", path, err)
+		}
+		return err
 	}
-	return err
+
+	log.Printf("✅ File %s deleted successfully.\n", path)
+	return nil
 }
 
-func listFiles(baseDir string) (tree string, err error) {
+func listFiles(baseDir string) (string, error) {
 	if baseDir == "" {
+		var err error
 		baseDir, err = os.Getwd()
 		if err != nil {
 			return "", err
 		}
 	}
-	baseDir = filepath.Clean(baseDir)
 
-	if tree, err = utils.BuildTree(baseDir, nil, nil); err != nil {
-		log.Printf("Error building tree for directory %s: %v\n", baseDir, err)
+	baseDir = filepath.Clean(baseDir)
+	tree, err := utils.BuildTree(baseDir, nil, nil)
+	if err != nil {
+		log.Printf("❌ Error building tree for directory %s: %v\n", baseDir, err)
 		return "", err
 	}
 

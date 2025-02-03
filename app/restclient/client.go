@@ -2,6 +2,7 @@ package restclient
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -34,61 +35,63 @@ func (c *RestClient) setHeaders(req *http.Request, headers map[string]string) {
 	}
 }
 
-func (c *RestClient) doRequest(request *http.Request) ([]byte, int, error) {
+func (c *RestClient) doRequest(ctx context.Context, request *http.Request) ([]byte, int, error) {
+	request = request.WithContext(ctx) // Attach context for cancellation
+
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer response.Body.Close()
-	var body []byte
-	body, err = io.ReadAll(response.Body)
+
+	body, err := io.ReadAll(response.Body)
 	return body, response.StatusCode, err
 }
 
-func (c *RestClient) Get(endpoint string, headers map[string]string) ([]byte, int, error) {
+func (c *RestClient) Get(ctx context.Context, endpoint string, headers map[string]string) ([]byte, int, error) {
 	url := c.baseURL + endpoint
-	request, err := http.NewRequest("GET", url, nil)
+	request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 	c.setHeaders(request, headers)
-	return c.doRequest(request)
+	return c.doRequest(ctx, request)
 }
 
-func (c *RestClient) Post(endpoint string, body any, headers map[string]string) ([]byte, int, error) {
+func (c *RestClient) Post(ctx context.Context, endpoint string, body any, headers map[string]string) ([]byte, int, error) {
 	url := c.baseURL + endpoint
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, 0, err
 	}
-	request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	request, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, 0, err
 	}
 	c.setHeaders(request, headers)
-	return c.doRequest(request)
+	return c.doRequest(ctx, request)
 }
 
-func (c *RestClient) Put(endpoint string, body any, headers map[string]string) ([]byte, int, error) {
+func (c *RestClient) Put(ctx context.Context, endpoint string, body any, headers map[string]string) ([]byte, int, error) {
 	url := c.baseURL + endpoint
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, 0, err
 	}
-	request, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonBody))
+	request, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, 0, err
 	}
 	c.setHeaders(request, headers)
-	return c.doRequest(request)
+	return c.doRequest(ctx, request)
 }
 
-func (c *RestClient) Delete(endpoint string, headers map[string]string) ([]byte, int, error) {
+func (c *RestClient) Delete(ctx context.Context, endpoint string, headers map[string]string) ([]byte, int, error) {
 	url := c.baseURL + endpoint
-	request, err := http.NewRequest("DELETE", url, nil)
+	request, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 	c.setHeaders(request, headers)
-	return c.doRequest(request)
+	return c.doRequest(ctx, request)
 }

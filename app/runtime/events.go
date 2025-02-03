@@ -14,13 +14,12 @@ const (
 )
 
 type Event struct {
-	Type        string
 	Task        *workers.Task
-	HandlerFunc func(r *Runtime, ev Event)
+	HandlerFunc func(r *Runtime, ev Event) string
 }
 
-var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event){
-	NewTask: func(r *Runtime, ev Event) {
+var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
+	NewTask: func(r *Runtime, ev Event) string {
 		r.worker.SetTask(ev.Task)
 		if r.cancelFunc != nil {
 			log.Println("🛑 Canceling current task before starting a new one.")
@@ -31,8 +30,9 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event){
 		r.activeTask = true
 		r.pastActions = []models.ActionTask{}
 		go r.runTask(ctx)
+		return NewTask
 	},
-	CancelTask: func(r *Runtime, ev Event) {
+	CancelTask: func(r *Runtime, ev Event) string {
 		if r.activeTask {
 			log.Println("🛑 Canceling active task.")
 			r.activeTask = false
@@ -44,5 +44,6 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event){
 		} else {
 			log.Println("⚠️ No active task to cancel.")
 		}
+		return CancelTask
 	},
 }

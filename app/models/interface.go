@@ -1,9 +1,11 @@
 package models
 
+import "context"
+
 type Interface interface {
-	Think(messages []Message) (string, error)
-	Process(messages []Message) (*ActionTask, error)
-	YesOrNo(messages []Message, retry int) (bool, error)
+	Think(context.Context, []Message) (string, error)
+	Process(context.Context, []Message) (*ActionTask, error)
+	YesOrNo(context.Context, []Message) (bool, error)
 }
 
 type Message struct {

@@ -1,6 +1,7 @@
 package restclient
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -29,13 +30,14 @@ func TestDoRequest(t *testing.T) {
 		return nil, errors.New("err")
 	})}}
 	r, _ := http.NewRequest("GET", "http://test", nil)
-	b, s, err := c.doRequest(r)
+	b, s, err := c.doRequest(context.Background(), r)
 	if err == nil || s != 0 || len(b) != 0 {
 		t.Fail()
 	}
 }
 
 func TestRestClient(t *testing.T) {
+	ctx := context.Background()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -72,13 +74,13 @@ func TestRestClient(t *testing.T) {
 			var err error
 			switch cse.method {
 			case http.MethodGet:
-				b, s, err = rc.Get(cse.endpoint, nil)
+				b, s, err = rc.Get(ctx, cse.endpoint, nil)
 			case http.MethodPost:
-				b, s, err = rc.Post(cse.endpoint, cse.body, nil)
+				b, s, err = rc.Post(ctx, cse.endpoint, cse.body, nil)
 			case http.MethodPut:
-				b, s, err = rc.Put(cse.endpoint, cse.body, nil)
+				b, s, err = rc.Put(ctx, cse.endpoint, cse.body, nil)
 			case http.MethodDelete:
-				b, s, err = rc.Delete(cse.endpoint, nil)
+				b, s, err = rc.Delete(ctx, cse.endpoint, nil)
 			}
 			if cse.expectOK && (err != nil || s != http.StatusOK || string(b) != "ok") {
 				t.Fail()

@@ -132,10 +132,11 @@ func (c Coder) PromptValidation(plan string, actions []models.ActionTask) []mode
 	systemMessage := models.Message{
 		Role: "system",
 		Content: "You are a strict validation AI responsible for verifying if the generated code fully meets all task requirements.\n\n" +
-			"### **Output Format (One Character Response Only):**\n" +
+			"### **Output Format :**\n" +
 			"- \"true\" → The task meets all criteria.\n" +
 			"- \"false\" → The task is incomplete or incorrect.\n\n" +
-			"If the code fails validation (\"false\"), the system will iterate until all conditions are met.",
+			"If the code fails validation (\"false\"), the system will iterate until all conditions are met." +
+			"Answer strictly 'true' or 'false'. No explanations.",
 	}
 
 	userMessage := models.Message{

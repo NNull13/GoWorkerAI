@@ -21,7 +21,7 @@ type Runtime struct {
 	actions     []actions.Action
 	events      chan Event
 	activeTask  bool
-	cancelFunc  context.CancelFunc // Controls task cancellation
+	cancelFunc  context.CancelFunc
 }
 
 func NewRuntime(worker workers.Interface, model models.Interface, initialActions []actions.Action, activeTask bool) *Runtime {
@@ -64,14 +64,13 @@ func (r *Runtime) QueueEvent(event Event) {
 	select {
 	case r.events <- event:
 	default:
-		log.Println("⚠️ Event queue is full, dropping event:", event.Type)
+		log.Print("⚠️ Event queue is full, dropping event")
 	}
 }
 
 func (r *Runtime) handleEvent(ev Event) {
-	log.Printf("🆕 New Event received: %s Task: %v\n", ev.Type, ev.Task)
 	r.mu.Lock()
-	ev.HandlerFunc(r, ev)
+	log.Printf("🆕 New Event received: %s Task: %v\n", ev.HandlerFunc(r, ev), ev.Task)
 	defer r.mu.Unlock()
 }
 
@@ -95,7 +94,7 @@ func (r *Runtime) runTask(ctx context.Context) {
 		log.Println("🛑 runTask() completed.")
 	}()
 
-	plan, err := r.model.Think(currentWorker.PromptPlan())
+	plan, err := r.model.Think(ctx, currentWorker.PromptPlan())
 	if err != nil {
 		log.Printf("❌ Error generating plan: %v", err)
 		return
@@ -121,7 +120,7 @@ func (r *Runtime) runTask(ctx context.Context) {
 			log.Printf("📝 Iteration %d. Generating next action...", i)
 
 			prompt := currentWorker.PromptNextAction(plan, r.actions, pastActionsSnapshot)
-			actionTask, err := r.model.Process(prompt)
+			actionTask, err := r.model.Process(ctx, prompt)
 			if err != nil {
 				log.Printf("❌ Error processing action: %v", err)
 				break
@@ -140,7 +139,7 @@ func (r *Runtime) runTask(ctx context.Context) {
 			r.mu.Unlock()
 
 			log.Println("🔍 Validating action...")
-			validationResult, err := r.model.YesOrNo(currentWorker.PromptValidation(plan, pastActionsSnapshot), 3)
+			validationResult, err := r.model.YesOrNo(ctx, currentWorker.PromptValidation(plan, pastActionsSnapshot))
 			if err != nil {
 				log.Printf("❌ Validation error: %v", err)
 				break

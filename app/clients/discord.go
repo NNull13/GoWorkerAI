@@ -99,7 +99,6 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 				MaxIterations: 5,
 			}
 			ev := runtime.Event{
-				Type:        "new_task",
 				Task:        &newTask,
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.NewTask],
 			}
@@ -108,7 +107,6 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 
 		case "cancel":
 			ev := runtime.Event{
-				Type:        "cancel_task",
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.CancelTask],
 			}
 			c.runtime.QueueEvent(ev)

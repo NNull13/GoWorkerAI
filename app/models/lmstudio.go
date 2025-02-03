@@ -1,22 +1,26 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strings"
-	"sync"
+	"time"
 
 	"GoWorkerAI/app/restclient"
 	"GoWorkerAI/app/utils"
 )
 
-const endpoint = "/v1/chat/completions"
-const model = "qwen2.5-coder-7b-instruct"
+const (
+	endpoint = "/v1/chat/completions"
+	model    = "qwen2.5-coder-7b-instruct"
+)
 
 type requestPayload struct {
-	Model       string    `json:"models"`
+	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens"`
@@ -27,7 +31,7 @@ type responseLLM struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
-	Model   string `json:"models"`
+	Model   string `json:"model"`
 	Choices []struct {
 		Index        int     `json:"index"`
 		Logprobs     *string `json:"logprobs"`
@@ -39,12 +43,10 @@ type responseLLM struct {
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
-	SystemFingerprint string `json:"system_fingerprint"`
 }
 
 type LMStudioClient struct {
 	restClient *restclient.RestClient
-	mu         sync.Mutex // Mutex to prevent concurrent model requests
 }
 
 func NewLMStudioClient() *LMStudioClient {
@@ -53,41 +55,36 @@ func NewLMStudioClient() *LMStudioClient {
 	}
 }
 
-func (mc *LMStudioClient) Think(messages []Message) (string, error) {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-
+func (mc *LMStudioClient) Think(ctx context.Context, messages []Message) (string, error) {
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
-		Temperature: 0.69,
+		Temperature: 0.420,
 		MaxTokens:   -1,
 		Stream:      false,
 	}
 
-	generatedResponse, err := mc.sendRequestAndParse(payload, 3)
+	generatedResponse, err := mc.sendRequestAndParse(ctx, payload, 3)
 	if err != nil {
 		return "", err
 	}
 
-	if generatedResponse.Choices == nil {
-		return "", errors.New("no choices found")
+	if len(generatedResponse.Choices) == 0 {
+		return "", errors.New("no valid response from model")
 	}
-	return generatedResponse.Choices[0].Message.Content, nil
+
+	return strings.TrimSpace(generatedResponse.Choices[0].Message.Content), nil
 }
 
-func (mc *LMStudioClient) Process(messages []Message) (*ActionTask, error) {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-
+func (mc *LMStudioClient) Process(ctx context.Context, messages []Message) (*ActionTask, error) {
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
-		Temperature: 0.80,
-		MaxTokens:   -1,
+		Temperature: 0.7,
+		MaxTokens:   500,
 	}
 
-	generatedResponse, err := mc.sendRequestAndParse(payload, 3)
+	generatedResponse, err := mc.sendRequestAndParse(ctx, payload, 3)
 	if err != nil {
 		return nil, err
 	}
@@ -119,16 +116,7 @@ func (mc *LMStudioClient) Process(messages []Message) (*ActionTask, error) {
 	return &action, nil
 }
 
-func (mc *LMStudioClient) YesOrNo(messages []Message, retry int) (bool, error) {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-
-	systemPrompt := Message{
-		Role:    "system",
-		Content: "Answer only with 'true' for yes or 'false' for no. No additional text.",
-	}
-	messages = append([]Message{systemPrompt}, messages...)
-
+func (mc *LMStudioClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
 	payload := requestPayload{
 		Model:       model,
 		Messages:    messages,
@@ -136,52 +124,48 @@ func (mc *LMStudioClient) YesOrNo(messages []Message, retry int) (bool, error) {
 		MaxTokens:   1,
 	}
 
-	generatedResponse, err := mc.sendRequestAndParse(payload, retry)
+	generatedResponse, err := mc.sendRequestAndParse(ctx, payload, 3)
 	if err != nil {
 		return false, err
 	}
 
-	cleanedResponse := strings.ToLower(generatedResponse.Choices[0].Message.Content)
-	if cleanedResponse != "true" && cleanedResponse != "false" {
-		return false, fmt.Errorf("not boolean response: %s", cleanedResponse)
+	response := strings.ToLower(strings.TrimSpace(generatedResponse.Choices[0].Message.Content))
+	if response != "true" && response != "false" {
+		return false, fmt.Errorf("unexpected response: %s", response)
 	}
-	return cleanedResponse == "true", err
+	return response == "true", nil
 }
 
-func (mc *LMStudioClient) sendRequestAndParse(payload requestPayload, retry int) (*responseLLM, error) {
+func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*responseLLM, error) {
 	var err error
 	var response []byte
 	var status int
 	var generatedResponse *responseLLM
 
-	for i := 0; i < retry; i++ {
-		response, status, err = mc.restClient.Post(endpoint, payload, nil)
-		if status != 200 {
-			err = fmt.Errorf("http error %v, response: %v , error %w", status, string(response), err)
-			log.Printf("%s", err.Error())
-			continue
+	for i := 0; i < maxRetries; i++ {
+		select {
+		case <-ctx.Done():
+			log.Println("🚨 Request canceled before execution")
+			return nil, ctx.Err()
+		default:
+			delay := time.Duration(math.Pow(2, float64(i))) * 100 * time.Millisecond
+			time.Sleep(delay)
+
+			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
+			if err != nil || status != 200 {
+				log.Printf("⚠️ Attempt %d failed: HTTP %d | Error: %v", i+1, status, err)
+				continue
+			}
+
+			err = json.Unmarshal(response, &generatedResponse)
+			if err != nil {
+				log.Printf("⚠️ Error parsing response: %v", err)
+				continue
+			}
+
+			return generatedResponse, nil
 		}
-
-		generatedResponse, err = parseLLMResponse(response)
-		if err != nil {
-			log.Printf("Error parsing response: %s err: %v", response, err)
-			continue
-		}
-		break
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	return generatedResponse, nil
-}
-
-func parseLLMResponse(jsonData []byte) (*responseLLM, error) {
-	var llmResponse responseLLM
-	err := json.Unmarshal(jsonData, &llmResponse)
-	if err != nil {
-		return nil, err
-	}
-	return &llmResponse, nil
+	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, err)
 }
