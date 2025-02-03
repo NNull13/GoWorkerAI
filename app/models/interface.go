@@ -3,7 +3,7 @@ package models
 import "context"
 
 type Interface interface {
-	Think(context.Context, []Message) (string, error)
+	GenerateResponse(ctx context.Context, messages []Message, temperature float64, maxTokens int) (string, error)
 	Process(context.Context, []Message) (*ActionTask, error)
 	YesOrNo(context.Context, []Message) (bool, error)
 }

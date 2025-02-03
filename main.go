@@ -2,21 +2,25 @@ package main
 
 import (
 	"log"
+	"sync"
 
 	"GoWorkerAI/app/actions"
-	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/runtime"
 )
 
 func main() {
-	modelClient := models.NewLMStudioClient()
+	var wg sync.WaitGroup
 	for _, worker := range customWorkers {
-		r := runtime.NewRuntime(worker, modelClient, actions.WorkerActions, worker.GetTask() != nil)
+		wg.Add(1)
+		r := runtime.NewRuntime(worker, modelClient, actions.WorkerActions, db, worker.GetTask() != nil)
 		for _, client := range customClients {
 			client.Subscribe(r)
 		}
-		go r.Start()
+		go func() {
+			defer wg.Done()
+			r.Start()
+		}()
 	}
 	log.Println("All runtimes started. Waiting for clients indefinitely...")
-	select {}
+	wg.Wait()
 }

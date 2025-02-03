@@ -1,20 +1,32 @@
 package workers
 
-import (
-	"GoWorkerAI/app/actions"
-	"GoWorkerAI/app/models"
-)
+import "github.com/google/uuid"
 
-type Interface interface {
-	Base
-	PromptPlan() []models.Message
-	PromptNextAction(plan string, actions []actions.Action, executedActions []models.ActionTask) []models.Message
-	PromptValidation(plan string, actions []models.ActionTask) []models.Message
+type Worker struct {
+	Task       *Task
+	Rules      []string
+	LockFolder bool
+	Folder     string
 }
 
-type Base interface {
-	SetTask(*Task)
-	GetTask() *Task
-	GetFolder() string
-	GetLockFolder() bool
+func (w *Worker) SetTask(task *Task) {
+	task.ID = uuid.New()
+	w.Task = task
+}
+
+func (w *Worker) GetTask() (task *Task) {
+	if w != nil {
+		task = w.Task
+	}
+	return
+}
+
+func (w *Worker) GetFolder() (folder string) {
+	if w != nil {
+		folder = w.Folder
+	}
+	return
+}
+func (w *Worker) GetLockFolder() bool {
+	return w != nil && w.LockFolder
 }

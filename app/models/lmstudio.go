@@ -14,14 +14,15 @@ import (
 	"time"
 
 	"GoWorkerAI/app/restclient"
+	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/utils"
 )
 
 const (
 	endpoint          = "/v1/chat/completions"
 	embeddingEndpoint = "/v1/embeddings"
-	model             = "qwen2.5-coder-7b-instruct"
-	embeddingModel    = "qwen2.5-embed"
+	model             = "qwen2.5-7b-instruct-1m"
+	embeddingModel    = "text-embedding-nomic-embed-text-v1.5-embedding"
 )
 
 type requestPayload struct {
@@ -29,7 +30,6 @@ type requestPayload struct {
 	Messages    []Message `json:"messages"`
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens"`
-	Stream      bool      `json:"stream"`
 }
 
 type embeddingRequestPayload struct {
@@ -73,7 +73,114 @@ func NewLMStudioClient() *LMStudioClient {
 	}
 }
 
-func (mc *LMStudioClient) GetEmbeddings(ctx context.Context, input string) ([]float64, error) {
+func (mc *LMStudioClient) GenerateResponse(ctx context.Context, messages []Message, temperature float64, maxTokens int) (string, error) {
+	enhancedMessages, err := mc.enrichWithEmbeddings(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	payload := requestPayload{
+		Model:       model,
+		Messages:    enhancedMessages,
+		Temperature: temperature,
+		MaxTokens:   maxTokens,
+	}
+	return mc.sendRequestAndParse(ctx, payload, 3)
+}
+
+func (mc *LMStudioClient) Process(ctx context.Context, messages []Message) (*ActionTask, error) {
+	response, err := mc.GenerateResponse(ctx, messages, 0.2, -1)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Generated response: %s", response)
+	response = strings.TrimSpace(response)
+	response = strings.ReplaceAll(response, "```json", "")
+	response = strings.ReplaceAll(response, "```", "")
+	marker := ",\n  \"content\": "
+	start := strings.Index(response, marker)
+	end := strings.LastIndex(response, "}")
+
+	var contentAction string
+	if start != -1 && end != -1 && start < end {
+		contentAction = response[start+len(marker)+1 : end-2]
+		contentAction = utils.UnescapeIfNeeded(contentAction)
+		response = utils.RemoveSubstring(response, start, end)
+	}
+
+	var action ActionTask
+	if err = json.Unmarshal([]byte(response), &action); err != nil {
+		return nil, fmt.Errorf("failed to parse response as JSON: %w response: %s", err, response)
+	}
+
+	if contentAction != "" {
+		action.Content += contentAction
+	}
+
+	return &action, nil
+}
+
+func (mc *LMStudioClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
+	response, err := mc.GenerateResponse(ctx, messages, 0.0, 1)
+	if err != nil {
+		return false, err
+	}
+
+	lowerResp := strings.ToLower(strings.TrimSpace(response))
+	if lowerResp != "true" && lowerResp != "false" {
+		return false, fmt.Errorf("unexpected response: %v", response)
+	}
+
+	return lowerResp == "true", nil
+}
+
+func (mc *LMStudioClient) GenerateSummary(ctx context.Context, history []storage.Record) (string, error) {
+	var combinedContent strings.Builder
+	for i, entry := range history {
+		combinedContent.WriteString(fmt.Sprintf("Record %d %v\n", i, entry))
+	}
+
+	summaryPrompt := []Message{
+		{Role: "system", Content: "Generate a concise summary of the following task history."},
+		{Role: "user", Content: combinedContent.String()},
+	}
+
+	return mc.GenerateResponse(ctx, summaryPrompt, 0.1, 500)
+}
+
+func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (string, error) {
+	var err error
+	var response []byte
+	var status int
+	var generatedResponse responseLLM
+
+	for i := 0; i < maxRetries; i++ {
+		select {
+		case <-ctx.Done():
+			log.Println("🚨 Request canceled before execution")
+			return "", ctx.Err()
+		default:
+			time.Sleep(time.Duration(math.Pow(2, float64(i))) * 100 * time.Millisecond)
+
+			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
+			if err != nil || status != 200 {
+				log.Printf("⚠️ Attempt %d failed: HTTP %d | Error: %v", i+1, status, err)
+				continue
+			}
+
+			if err = json.Unmarshal(response, &generatedResponse); err != nil {
+				log.Printf("⚠️ Error parsing response: %v", err)
+				continue
+			}
+
+			return generatedResponse.Choices[0].Message.Content, nil
+		}
+	}
+
+	return "", fmt.Errorf("request failed after %d retries: %w", maxRetries, err)
+}
+
+func (mc *LMStudioClient) getEmbeddings(ctx context.Context, input string) ([]float64, error) {
 	if cached, ok := mc.cache.Load(input); ok {
 		return cached.([]float64), nil
 	}
@@ -104,26 +211,18 @@ func (mc *LMStudioClient) GetEmbeddings(ctx context.Context, input string) ([]fl
 	return embeddingResp.Data[0].Embedding, nil
 }
 
-func HashEmbedding(embedding []float64) string {
-	hash := sha256.New()
-	for _, value := range embedding {
-		hash.Write([]byte(fmt.Sprintf("%.6f", value)))
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
 func (mc *LMStudioClient) enrichWithEmbeddings(ctx context.Context, messages []Message) ([]Message, error) {
 	var enhancedMessages []Message
 
 	for _, msg := range messages {
-		embedding, err := mc.GetEmbeddings(ctx, msg.Content)
+		embedding, err := mc.getEmbeddings(ctx, msg.Content)
 		if err != nil {
 			log.Printf("⚠️ Error obtaining embedding for message: %s", msg.Content)
 			enhancedMessages = append(enhancedMessages, msg)
 			continue
 		}
 
-		embeddingStr := fmt.Sprintf("Embedding hash: %s", HashEmbedding(embedding))
+		embeddingStr := fmt.Sprintf("Embedding hash: %s", hashEmbedding(embedding))
 		enhancedMessages = append(enhancedMessages, Message{
 			Role:    msg.Role,
 			Content: msg.Content + "\n\n" + embeddingStr,
@@ -133,102 +232,10 @@ func (mc *LMStudioClient) enrichWithEmbeddings(ctx context.Context, messages []M
 	return enhancedMessages, nil
 }
 
-func (mc *LMStudioClient) GenerateResponse(ctx context.Context, messages []Message, temperature float64, maxTokens int) (*responseLLM, error) {
-	enhancedMessages, err := mc.enrichWithEmbeddings(ctx, messages)
-	if err != nil {
-		return nil, err
+func hashEmbedding(embedding []float64) string {
+	hash := sha256.New()
+	for _, value := range embedding {
+		hash.Write([]byte(fmt.Sprintf("%.6f", value)))
 	}
-
-	payload := requestPayload{
-		Model:       model,
-		Messages:    enhancedMessages,
-		Temperature: temperature,
-		MaxTokens:   maxTokens,
-		Stream:      false,
-	}
-	return mc.sendRequestAndParse(ctx, payload, 3)
-}
-
-func (mc *LMStudioClient) Think(ctx context.Context, messages []Message) (string, error) {
-	response, err := mc.GenerateResponse(ctx, messages, 0.420, -1)
-	return response.Choices[0].Message.Content, err
-}
-
-func (mc *LMStudioClient) Process(ctx context.Context, messages []Message) (*ActionTask, error) {
-	response, err := mc.GenerateResponse(ctx, messages, 0.33, -1)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("Generated response: %s", response.Choices[0].Message.Content)
-
-	rawContent := strings.TrimSpace(response.Choices[0].Message.Content)
-	rawContent = strings.ReplaceAll(rawContent, "```json", "")
-	rawContent = strings.ReplaceAll(rawContent, "```", "")
-	marker := ",\n  \"content\": "
-	start := strings.Index(rawContent, marker)
-	end := strings.LastIndex(rawContent, "}")
-
-	var contentAction string
-	if start != -1 && end != -1 && start < end {
-		contentAction = rawContent[start+len(marker)+1 : end-2]
-		contentAction = utils.UnescapeIfNeeded(contentAction)
-		rawContent = utils.RemoveSubstring(rawContent, start, end)
-	}
-
-	var action ActionTask
-	if err = json.Unmarshal([]byte(rawContent), &action); err != nil {
-		return nil, fmt.Errorf("failed to parse response as JSON: %w response: %s", err, rawContent)
-	}
-
-	if contentAction != "" {
-		action.Content += contentAction
-	}
-
-	return &action, nil
-}
-
-func (mc *LMStudioClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
-	response, err := mc.GenerateResponse(ctx, messages, 0.0, 1)
-	if err != nil {
-		return false, err
-	}
-
-	lowerResp := strings.ToLower(strings.TrimSpace(response.Choices[0].Message.Content))
-	if lowerResp != "true" && lowerResp != "false" {
-		return false, fmt.Errorf("unexpected response: %v", response)
-	}
-
-	return lowerResp == "true", nil
-}
-
-func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*responseLLM, error) {
-	var err error
-	var response []byte
-	var status int
-	var generatedResponse responseLLM
-
-	for i := 0; i < maxRetries; i++ {
-		select {
-		case <-ctx.Done():
-			log.Println("🚨 Request canceled before execution")
-			return nil, ctx.Err()
-		default:
-			time.Sleep(time.Duration(math.Pow(2, float64(i))) * 100 * time.Millisecond)
-
-			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
-			if err != nil || status != 200 {
-				log.Printf("⚠️ Attempt %d failed: HTTP %d | Error: %v", i+1, status, err)
-				continue
-			}
-
-			if err = json.Unmarshal(response, &generatedResponse); err != nil {
-				log.Printf("⚠️ Error parsing response: %v", err)
-				continue
-			}
-
-			return &generatedResponse, nil
-		}
-	}
-
-	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, err)
+	return hex.EncodeToString(hash.Sum(nil))
 }

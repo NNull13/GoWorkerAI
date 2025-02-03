@@ -18,6 +18,7 @@
 # vendor/
 logs/
 generations/
+data/
 
 # Go workspace file
 go.work

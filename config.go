@@ -2,6 +2,8 @@ package main
 
 import (
 	"GoWorkerAI/app/clients"
+	"GoWorkerAI/app/models"
+	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/workers"
 )
 
@@ -23,7 +25,8 @@ var customWorkers = []workers.Interface{
 		false,
 	),
 }
-
 var customClients = []clients.Interface{
 	clients.NewDiscordClient(),
 }
+var db = storage.NewSQLiteStorage()
+var modelClient = models.NewLMStudioClient()

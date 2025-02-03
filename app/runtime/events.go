@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 
-	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/workers"
 )
 
@@ -28,7 +27,6 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancelFunc = cancel
 		r.activeTask = true
-		r.pastActions = []models.ActionTask{}
 		go r.runTask(ctx)
 		return NewTask
 	},
@@ -40,7 +38,6 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 			if r.cancelFunc != nil {
 				r.cancelFunc() // Stops the current `runTask`
 			}
-			r.pastActions = []models.ActionTask{}
 		} else {
 			log.Println("⚠️ No active task to cancel.")
 		}

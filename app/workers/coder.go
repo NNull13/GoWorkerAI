@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"GoWorkerAI/app/actions"
 	"GoWorkerAI/app/models"
 )
@@ -20,7 +22,7 @@ func NewCoder(language, task string, codeStyles, acceptConditions, rules, testSt
 	maxIterations int, folder string, lockFolder bool) *Coder {
 	return &Coder{
 		Worker: Worker{
-			Task:  &Task{Task: task, AcceptConditions: acceptConditions, MaxIterations: maxIterations},
+			Task:  &Task{ID: uuid.New(), Task: task, AcceptConditions: acceptConditions, MaxIterations: maxIterations},
 			Rules: rules, LockFolder: lockFolder, Folder: folder},
 		Language: language, CodeStyles: codeStyles, Tests: tests, TestStyles: testStyles,
 	}
@@ -41,18 +43,25 @@ func (c Coder) TaskInformation() string {
 
 func (c Coder) PromptPlan() []models.Message {
 	var sysBuilder strings.Builder
-	sysBuilder.WriteString("You are an expert software engineer tasked with planning the implementation of a coding task. ")
-	sysBuilder.WriteString("Analyze the given problem and generate a structured, step-by-step development plan.\n\n")
+	sysBuilder.WriteString("You are an expert software engineer specializing in structured software planning.\n")
+	sysBuilder.WriteString("Your task is to create a detailed and actionable development plan before any code is written.\n\n")
+
 	sysBuilder.WriteString("### **Instructions:**\n")
-	sysBuilder.WriteString("1. Break down the task into small, actionable steps.\n")
-	sysBuilder.WriteString("2. Consider potential risks and outline measures to mitigate them.\n")
-	sysBuilder.WriteString("3. Ensure adherence to the specified code style and development rules.\n")
+	sysBuilder.WriteString("1. Break down the task into **precise, sequential steps**.\n")
+	sysBuilder.WriteString("2. Identify potential risks and suggest mitigation strategies.\n")
+	sysBuilder.WriteString("3. Ensure all steps comply with:\n")
+	sysBuilder.WriteString("   - **Code style guidelines**\n")
+	sysBuilder.WriteString("   - **Development rules**\n")
+	sysBuilder.WriteString("   - **Accepted conditions**\n")
+
 	if c.Tests {
-		sysBuilder.WriteString("4. Include a plan for writing and executing tests following the provided test styles.\n")
+		sysBuilder.WriteString("4. Include a structured plan for testing, following the specified test styles.\n")
 	}
-	sysBuilder.WriteString("\n### **Output Format (Numbered List of Steps Only):**\n")
-	sysBuilder.WriteString("1. [Step 1]\n2. [Step 2]\n... \nN. [Final step]\n\n")
-	sysBuilder.WriteString("Do **NOT** write any code at this stage; focus solely on planning.")
+
+	sysBuilder.WriteString("\n### **Strict Output Format:**\n")
+	sysBuilder.WriteString("Provide the steps in a numbered list **without explanations**:\n")
+	sysBuilder.WriteString("```\n1. [Step 1]\n2. [Step 2]\n...\nN. [Final step]\n```\n")
+	sysBuilder.WriteString("⚠ **DO NOT generate any code at this stage. Only planning.**")
 
 	systemMessage := models.Message{
 		Role:    "system",
@@ -67,46 +76,36 @@ func (c Coder) PromptPlan() []models.Message {
 	return []models.Message{systemMessage, userMessage}
 }
 
-func (c Coder) PromptNextAction(plan string, actions []actions.Action, executedActions []models.ActionTask) []models.Message {
+func (c Coder) PromptNextAction(plan, resume string, actions []actions.Action) []models.Message {
 	var actionsDescBuilder strings.Builder
 	for _, action := range actions {
 		actionsDescBuilder.WriteString(fmt.Sprintf("- `%s`: %s\n", action.Key, action.Description))
 	}
 
-	var executedActionsBuilder strings.Builder
-	for i, act := range executedActions {
-		executedActionsBuilder.WriteString(fmt.Sprintf("Iteration %d:\n   - ActionTask: %v\n", i+1, act))
-	}
-
 	systemPrompt := fmt.Sprintf(
-		`You are a software engineer AI tasked with generating code based on the given plan.
-		Your response must strictly adhere to a JSON format and use one of the available actions to move the task forward.
+		`You are an AI-powered software engineer tasked with executing coding tasks step by step.
+		Your task is to determine the next logical action strictly based on the given plan and the actions executed so far.
 		
-		### Available Actions:
+		### **Available Actions:**
 		%s
 		
-		### JSON Output Format:
+		### **Strict JSON Output Format:**
+	
 		{
-		  "action": "<selected_action>",
-		  "filename": "<file>",
-		  "content": "<code or file content>"
+			"action": "<selected_action>",
+			"filename": "<file_path>",
+			"content": "<code_or_file_content>"
 		}
 		
-		Ensure your response is a valid JSON object. Do not return plain text.
-		Default action list_files with empty filename to search root`,
+		- Always return **valid JSON only**, nothing else.
+		- **Default action:** If this is the first step, use `+"`list_files`"+` with an empty filename to inspect the directory before proceeding.`,
 		actionsDescBuilder.String(),
 	)
 
 	userPrompt := fmt.Sprintf(
-		`**Plan:**
-		%s
-		
-		### Executed Actions (Past Iterations):
-		%s
-		
-		Review the last steps executed
-		What should be the next action needed to complete the task?`,
-		plan, executedActionsBuilder.String(),
+		`### **Development Plan:**\n%s\n\n### **Executions resume:**\n%s\n\n
+		What should be the next action to move the task forward?`,
+		plan, resume,
 	)
 
 	return []models.Message{
@@ -115,36 +114,26 @@ func (c Coder) PromptNextAction(plan string, actions []actions.Action, executedA
 	}
 }
 
-func (c Coder) PromptValidation(plan string, actions []models.ActionTask) []models.Message {
-	var actionsSummaryBuilder strings.Builder
-	for i, act := range actions {
-		actionsSummaryBuilder.WriteString(fmt.Sprintf("Iteration %d:\n", i+1))
-		actionsSummaryBuilder.WriteString(fmt.Sprintf("  - ActionTask: %s\n", act.Action))
-		if act.Filename != "" {
-			actionsSummaryBuilder.WriteString(fmt.Sprintf("  - Filename: %s\n", act.Filename))
-		}
-		if act.Content != "" {
-			actionsSummaryBuilder.WriteString(fmt.Sprintf("  - Content: %s\n", act.Content))
-		}
-		actionsSummaryBuilder.WriteString("\n")
-	}
-
+func (c Coder) PromptValidation(plan string, recordsResume string) []models.Message {
 	systemMessage := models.Message{
 		Role: "system",
-		Content: "You are a strict validation AI responsible for verifying if the generated code fully meets all task requirements.\n\n" +
-			"### **Output Format :**\n" +
-			"- \"true\" → The task meets all criteria.\n" +
-			"- \"false\" → The task is incomplete or incorrect.\n\n" +
-			"If the code fails validation (\"false\"), the system will iterate until all conditions are met." +
-			"Answer strictly 'true' or 'false'. No explanations.",
+		Content: "You are a strict validation AI responsible for determining if the task has been fully completed.\n\n" +
+			"### **Validation Rules:**\n" +
+			"- Check if all required steps in the plan have been executed.\n" +
+			"- Ensure the output follows the required coding styles and rules.\n" +
+			"- Confirm that any test requirements have been met.\n\n" +
+			"### **Strict Output Format:**\n" +
+			"- `true` → The task meets all criteria and is complete.\n" +
+			"- `false` → The task is incomplete or incorrect.\n\n" +
+			"⚠ **Do not provide explanations. Respond strictly with `true` or `false`.**",
 	}
 
 	userMessage := models.Message{
 		Role: "user",
 		Content: fmt.Sprintf(
-			"### **Development Plan:**\n%s\n\n### **Context / Current Status / Iterations:**\n%s\n\n"+
-				"Based on the above information, have all necessary steps been completed to finalize the task plan?",
-			plan, actionsSummaryBuilder.String(),
+			"### **Development Plan:**\n%s\n\n### **Executed Actions: **\n%s\n\n"+
+				"Has the task been fully completed according to the plan? Respond with `true` or `false`.",
+			plan, recordsResume,
 		),
 	}
 
