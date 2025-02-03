@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -77,4 +79,13 @@ func BuildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) (strin
 		}
 	}
 	return tree.String(), nil
+}
+
+func HashEmbedding(embedding []float64) string {
+	hash := sha256.New()
+	for _, value := range embedding {
+		hash.Write([]byte(fmt.Sprintf("%.6f", value)))
+	}
+
+	return hex.EncodeToString(hash.Sum(nil))
 }
