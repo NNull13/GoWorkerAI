@@ -1,53 +1,14 @@
 package utils
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/xlab/treeprint"
 )
-
-func RemoveSubstring(input string, start, end int) string {
-	if start < 0 || end > len(input) || start >= end {
-		return input
-	}
-	return input[:start] + input[end:]
-}
-
-func containsEscapeSequence(s string) bool {
-	if len(s) < 2 {
-		return false
-	}
-	for i := 0; i < len(s)-1; i++ {
-		if s[i] == '\\' && strings.ContainsRune("ntr\"\\", rune(s[i+1])) {
-			return true
-		}
-	}
-	return false
-}
-
-func UnescapeIfNeeded(s string) string {
-	s = strings.TrimSpace(s)
-	if containsEscapeSequence(s) {
-		if !strings.HasPrefix(s, "\"") || !strings.HasSuffix(s, "\"") {
-			s = fmt.Sprintf("\"%s\"", s)
-		}
-		unescaped, err := strconv.Unquote(s)
-		if err != nil {
-			log.Printf("Error unquoting string: %v; text: %s", err, s)
-			return s
-		}
-		return unescaped
-	}
-	return s
-}
 
 func BuildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) (string, error) {
 	if tree == nil {
@@ -92,13 +53,13 @@ func BuildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) (strin
 	return tree.String(), nil
 }
 
-func HashEmbedding(embedding []float64) string {
-	hash := sha256.New()
-	for _, value := range embedding {
-		hash.Write([]byte(fmt.Sprintf("%.6f", value)))
+func ToJSON(input any) string {
+	data, err := json.Marshal(input)
+	if err != nil {
+		log.Printf("⚠️ Error serializing iteration: %v", err)
+		return "{}"
 	}
-
-	return hex.EncodeToString(hash.Sum(nil))
+	return string(data)
 }
 
 func ParseArguments(arguments string) (map[string]any, error) {

@@ -10,7 +10,12 @@ import (
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Go",
-		"You are an expert in Go unit testing. Your mission is to create new test files (ending with `_test.go`) that cover all public functions and relevant behaviors in this directory without modifying any existing test files. Use Go's native testing library and avoid unnecessary external frameworks. Leverage table-driven tests and sub-tests where appropriate, ensure each file is formatted with go fmt, and do not introduce any compilation warnings.",
+		"You are an expert in Go unit testing. Your mission is to read each file and make the tests that cover all"+
+			" public functions and relevant behaviors in this directory without modifying any existing logic files. "+
+			"Use Go's native testing library and avoid unnecessary external frameworks. Leverage table-driven tests and "+
+			"sub-tests where appropriate, ensure each file is formatted with go fmt, and do not introduce any compilation"+
+			" warnings. Process by 1 file per once, first list all, then each by each read file,"+
+			"write new file, read both and next",
 		[]string{
 			"Use table-driven tests with well-defined structs for inputs and expected outputs.",
 			"Leverage sub-tests via t.Run for each scenario in your table-driven tests.",

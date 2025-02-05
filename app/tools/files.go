@@ -18,29 +18,35 @@ type FileAction struct {
 	Content    string `json:"content"`
 }
 
-func ExecuteFileAction(action ToolTask) (result string, err error) {
+type GenericResult struct {
+	Result string `json:"result"`
+	Error  error  `json:"error,omitempty"`
+}
+
+func ExecuteFileAction(action ToolTask) (any, error) {
+	var result GenericResult
 	var fileAction *FileAction
 	fileAction, _ = utils.CastAny[FileAction](action.Parameters)
 	if fileAction == nil {
-		return "", errors.New("File Action Not Found")
+		return nil, errors.New("File Action Not Found")
 	}
 	switch action.Key {
 	case write_file:
-		err = writeToFile("", fileAction.FilePath, fileAction.Content)
-		result = "Successfully wrote file " + fileAction.FilePath
+		result.Result = "Successfully wrote file " + fileAction.FilePath
+		result.Error = writeToFile("", fileAction.FilePath, fileAction.Content)
 	case read_file:
-		result, err = readFile("", fileAction.FilePath)
+		result.Result, result.Error = readFile("", fileAction.FilePath)
 	case edit_file:
-		err = editFile("", fileAction.FilePath, fileAction.NewContent)
-		result = "Successfully edited file " + fileAction.FilePath
+		result.Result = "Successfully edited file " + fileAction.FilePath
+		result.Error = editFile("", fileAction.FilePath, fileAction.NewContent)
 	case delete_file:
-		err = deleteFile("", fileAction.FilePath)
-		result = "Successfully deleted file " + fileAction.FilePath
+		result.Result = "Successfully deleted file " + fileAction.FilePath
+		result.Error = deleteFile("", fileAction.FilePath)
 	case list_files:
-		result, err = listFiles(fileAction.Directory)
+		result.Result, result.Error = listFiles(fileAction.Directory)
 	}
 
-	return result, err
+	return result, nil
 }
 
 func writeToFile(baseDir, filename, content string) error {
@@ -120,11 +126,10 @@ func listFiles(baseDir string) (string, error) {
 		baseDir = dir
 	}
 
-	var note string
+	var errNote error
 	baseDir = filepath.Clean(baseDir)
 	if _, err = os.Stat(baseDir); os.IsNotExist(err) {
-		log.Printf("⚠️ Directory %s not found. Falling back to current working directory.", baseDir)
-		note = "Could not find that directory. Used '.' instead; could try one of the listed directories:\n"
+		errNote = errors.New("could not find that directory. Used '.' instead; could try one of the listed directories")
 		dir, err = os.Getwd()
 		if err != nil {
 			return "", err
@@ -140,5 +145,5 @@ func listFiles(baseDir string) (string, error) {
 		return "", err
 	}
 
-	return note + tree, nil
+	return tree, errNote
 }

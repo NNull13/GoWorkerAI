@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"GoWorkerAI/app/restclient"
 	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/tools"
 	"GoWorkerAI/app/utils"
+	"GoWorkerAI/app/utils/restclient"
 )
 
 const (
@@ -100,116 +100,15 @@ func (mc *LMStudioClient) Think(ctx context.Context, messages []Message, temp fl
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LMStudioClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
-	enhancedMessages, err := mc.enrichWithEmbeddings(ctx, messages)
-	if err != nil {
-		return nil, err
-	}
-	payload := requestPayload{
-		Model:       model,
-		Tools:       functionsToPayload(tools),
-		Messages:    enhancedMessages,
-		Temperature: temp,
-		MaxTokens:   maxTokens,
-	}
-	return mc.sendRequestAndParse(ctx, payload, 3)
-}
-
-func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolkit map[string]tools.Tool,
-	taskID string, maxIterations int) (string, error) {
-	response, err := mc.doProcess(ctx, messages, toolkit, taskID, maxIterations)
-	if err != nil {
-		return "", err
-	}
-
-	mc.storage.SaveIteration(ctx, storage.Iteration{
-		TaskID:    taskID,
-		Role:      "assistant",
-		Content:   response,
-		CreatedAt: time.Now(),
-	})
-
-	return response, nil
-}
-
-func (mc *LMStudioClient) doProcess(ctx context.Context, messages []Message, toolkit map[string]tools.Tool, taskID string, maxIterations int) (string, error) {
-	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
-	if err != nil {
-		return "", err
-	}
-
-	for i := 0; i < maxIterations; i++ {
-		message := response.Choices[0].Message
-
-		if len(message.ToolCalls) == 0 {
-			return message.Content, nil
-		}
-
-		toolMessages := []Message{}
-		for _, call := range message.ToolCalls {
-			toolTask := tools.ToolTask{Key: call.Function.Name}
-			toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
-			tool := toolkit[toolTask.Key]
-			if tool.HandlerFunc == nil {
-				return "", fmt.Errorf("handler function is nil for tool: %s", toolTask.Key)
-			}
-
-			var result string
-			if result, err = tool.HandlerFunc(toolTask); err != nil {
-				continue
-			}
-
-			log.Printf("✅ Message tool %s parameters: %s result: %s", tool.Name, toolTask.Parameters, result)
-			mc.storage.SaveIteration(ctx, storage.Iteration{
-				TaskID:    taskID,
-				Role:      "tool",
-				Tool:      toolkit[toolTask.Key].Name,
-				Content:   result,
-				CreatedAt: time.Now(),
-			})
-
-			toolMessages = append(toolMessages, Message{
-				Role:    "tool",
-				Content: result,
-			})
-			assistantToolCallMessage := Message{
-				Role: "assistant",
-				ToolCalls: []ToolCall{
-					{
-						ID:   response.Choices[0].Message.ToolCalls[0].ID,
-						Type: "function",
-						Function: ToolFunction{
-							Name:      response.Choices[0].Message.ToolCalls[0].Function.Name,
-							Arguments: response.Choices[0].Message.ToolCalls[0].Function.Arguments,
-						},
-					},
-				},
-			}
-
-			messages = append(messages, assistantToolCallMessage)
-			messages = append(messages, toolMessages...)
-		}
-
-		response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	return response.Choices[0].Message.Content, nil
-}
-
 func (mc *LMStudioClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
 	response, err := mc.generateResponse(ctx, messages, nil, 0.0, 1)
 	if err != nil {
 		return false, err
 	}
-
 	lowerResp := strings.ToLower(strings.TrimSpace(response.Choices[0].Message.Content))
 	if lowerResp != "true" && lowerResp != "false" {
 		return false, fmt.Errorf("unexpected response: %v", response)
 	}
-
 	return lowerResp == "true", nil
 }
 
@@ -222,14 +121,24 @@ func (mc *LMStudioClient) GenerateSummary(ctx context.Context, taskID string) (s
 		return "Task not started yet, incomplete", nil
 	}
 
+	systemPrompt := `You are an AI responsible for summarizing task execution histories. 
+	Generate a structured summary that includes:
+	- A high-level overview of the task.
+	- The key actions performed in sequence.
+	- Any errors or issues encountered.
+	- The tools used and their results.
+	- The current state of progress and what remains to be done.
+	Ensure that the summary is concise, coherent, and useful for future iterations.`
+
 	messages := []Message{
-		{Role: "system", Content: "Generate a structured summary of the following task history, ensuring accuracy of each step."},
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: "Here is the history of task execution. Summarize it:"},
 	}
 
 	for _, entry := range history {
 		messages = append(messages, Message{
 			Role:    entry.Role,
-			Content: fmt.Sprintf(entry.Content),
+			Content: fmt.Sprintf("Role: %s | Tool: %s | Content: %s", entry.Role, entry.Tool, entry.Content),
 		})
 	}
 
@@ -243,42 +152,79 @@ func (mc *LMStudioClient) GenerateSummary(ctx context.Context, taskID string) (s
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
-	var err error
-	var response []byte
-	var status int
-	var generatedResponse ResponseLLM
+func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolkit map[string]tools.Tool, taskID string, maxIterations int) (string, error) {
+	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
+	if err != nil {
+		return "", err
+	}
 
-	for i := 0; i < maxRetries; i++ {
-		select {
-		case <-ctx.Done():
-			log.Println("🚨 Request canceled before execution")
-			return nil, ctx.Err()
-		default:
-			time.Sleep(time.Duration(math.Pow(2, float64(i))) * 100 * time.Millisecond)
-
-			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
-			if err != nil || status != 200 {
-				log.Printf("⚠️ Attempt %d failed: HTTP %d | Error: %v", i+1, status, err)
-				continue
-			}
-
-			if err = json.Unmarshal(response, &generatedResponse); err != nil {
-				log.Printf("⚠️ Error parsing response: %v", err)
-				continue
-			}
-
-			return &generatedResponse, nil
+	message := response.Choices[0].Message
+	for i := 0; ; i++ {
+		messages = append(messages, message)
+		messages = append(messages, mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID)...)
+		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
+			return "", err
+		}
+		message = response.Choices[0].Message
+		if len(message.ToolCalls) == 0 {
+			break
 		}
 	}
 
-	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, err)
+	mc.storage.SaveIteration(ctx, storage.Iteration{
+		TaskID:    taskID,
+		Role:      "assistant",
+		Content:   message.Content,
+		CreatedAt: time.Now(),
+	})
+
+	return message.Content, nil
+}
+
+func (mc *LMStudioClient) handleToolCalls(ctx context.Context, toolkit map[string]tools.Tool,
+	toolCalls []ToolCall, taskID string) (messages []Message) {
+	for _, call := range toolCalls {
+		toolTask := tools.ToolTask{Key: call.Function.Name}
+		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
+
+		tool, exists := toolkit[toolTask.Key]
+		if !exists || tool.HandlerFunc == nil {
+			log.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
+			continue
+		}
+
+		var result any
+		var err error
+		if result, err = tool.HandlerFunc(toolTask); err != nil {
+			log.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
+			continue
+		}
+
+		resultJSON, _ := json.Marshal(result)
+		mc.storage.SaveIteration(ctx, storage.Iteration{
+			TaskID:     taskID,
+			Role:       "tool",
+			Tool:       tool.Name,
+			Content:    string(resultJSON),
+			Parameters: call.Function.Arguments,
+			CreatedAt:  time.Now(),
+		})
+
+		messages = append(messages, Message{
+			Role: "assistant",
+		}, Message{
+			Role:    "tool",
+			Content: string(resultJSON),
+		})
+	}
+
+	return messages
 }
 
 func (mc *LMStudioClient) getEmbeddings(ctx context.Context, input string) ([]float64, error) {
 	if cached, ok := mc.cache.Load(input); ok {
-		if _, ok = cached.([]float64); ok {
-			return cached.([]float64), nil
+		if emb, ok := cached.([]float64); ok {
+			return emb, nil
 		}
 	}
 
@@ -288,16 +234,13 @@ func (mc *LMStudioClient) getEmbeddings(ctx context.Context, input string) ([]fl
 	}
 
 	response, status, err := mc.restClient.Post(ctx, embeddingEndpoint, payload, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
-	}
-	if status != 200 {
-		return nil, fmt.Errorf("unexpected status code: %d", status)
+	if err != nil || status != 200 {
+		return nil, fmt.Errorf("embedding request failed: HTTP %d, error: %w", status, err)
 	}
 
 	var embeddingResp embeddingResponse
 	if err = json.Unmarshal(response, &embeddingResp); err != nil {
-		return nil, fmt.Errorf("error parsing response: %w", err)
+		return nil, fmt.Errorf("error parsing embedding response: %w", err)
 	}
 
 	if len(embeddingResp.Data) == 0 {
@@ -337,12 +280,56 @@ func hashEmbedding(embedding []float64) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
+func (mc *LMStudioClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
+	payload := requestPayload{
+		Model:       model,
+		Tools:       functionsToPayload(tools),
+		Messages:    messages,
+		Temperature: temp,
+		MaxTokens:   maxTokens,
+	}
+
+	return mc.sendRequestAndParse(ctx, payload, 3)
+}
+
 func functionsToPayload(functions map[string]tools.Tool) (payload []FunctionPayload) {
 	for _, function := range functions {
 		payload = append(payload, FunctionPayload{
-			"function",
-			function,
+			Type:     "function",
+			Function: function,
 		})
 	}
 	return payload
+}
+
+func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
+	var err error
+	var response []byte
+	var status int
+	var generatedResponse ResponseLLM
+
+	for i := 0; i < maxRetries; i++ {
+		select {
+		case <-ctx.Done():
+			log.Println("🚨 Request canceled before execution")
+			return nil, ctx.Err()
+		default:
+			time.Sleep(time.Duration(math.Pow(2, float64(i))) * 100 * time.Millisecond)
+
+			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
+			if err != nil || status != 200 {
+				log.Printf("⚠️ Attempt %d failed: HTTP %d | Error: %v | Payload %v", i+1, status, err, payload)
+				continue
+			}
+
+			if err = json.Unmarshal(response, &generatedResponse); err != nil {
+				log.Printf("⚠️ Error parsing response: %v", err)
+				continue
+			}
+
+			return &generatedResponse, nil
+		}
+	}
+
+	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, err)
 }

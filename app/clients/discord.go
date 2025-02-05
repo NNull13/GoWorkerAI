@@ -6,28 +6,31 @@ import (
 	"os"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
+
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/tools"
 	"GoWorkerAI/app/utils"
 	"GoWorkerAI/app/workers"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 type DiscordClient struct {
-	session *discordgo.Session
-	runtime *runtime.Runtime
+	session   *discordgo.Session
+	runtime   *runtime.Runtime
+	channelID string
 }
 
 func NewDiscordClient() *DiscordClient {
 	token := os.Getenv("DISCORD_TOKEN")
+
 	if token == "" {
 		return nil
 	}
 
 	session, _ := discordgo.New("Bot " + token)
 	dc := &DiscordClient{
-		session: session,
+		session:   session,
+		channelID: os.Getenv("DISCORD_CHANNEL_ID"),
 	}
 
 	session.AddHandler(dc.onMessageCreate)
@@ -48,7 +51,7 @@ func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 				Properties: map[string]any{
 					"channel_id": map[string]any{
 						"type":        "string",
-						"description": "Discord channel ID where the message will be sent. Use Default 1324515336980004949",
+						"description": fmt.Sprintf("Discord channel ID where the message will be sent. Use %s", c.channelID),
 					},
 					"message": map[string]any{
 						"type":        "string",
@@ -57,17 +60,19 @@ func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 				},
 				Required: []string{"channel_id", "message"},
 			},
-			HandlerFunc: func(tool tools.ToolTask) (string, error) {
+			HandlerFunc: func(tool tools.ToolTask) (any, error) {
+
 				discordParams, err := utils.CastAny[discordParameters](tool.Parameters)
 				if err != nil {
 					return "", err
 				}
 
 				err = c.SendMessage(discordParams.ChannelID, discordParams.Message)
-				if err != nil {
-					return "", err
-				}
-				return "Message successfully sent to Discord channel " + discordParams.ChannelID, nil
+
+				return tools.GenericResult{
+					Error:  err,
+					Result: "Message successfully sent to Discord channel " + discordParams.ChannelID,
+				}, nil
 			},
 		},
 	}
@@ -156,7 +161,6 @@ func (c *DiscordClient) handleTaskCommand(s *discordgo.Session, i *discordgo.Int
 	}
 }
 
-// respondInteraction sends a response back to the user for a slash command interaction.
 func (c *DiscordClient) respondInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,

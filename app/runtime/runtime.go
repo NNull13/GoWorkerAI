@@ -99,7 +99,7 @@ func (r *Runtime) runTask(ctx context.Context) {
 			log.Printf("✅ Process response: %s", response)
 
 			var validationResult bool
-			if resume, validationResult = r.validateAction(ctx, currentWorker, plan, resume); validationResult {
+			if resume, validationResult = r.validateAction(ctx, currentWorker, plan, task.ID.String()); validationResult {
 				log.Printf("🎉 Task successfully completed: %s", task.Task)
 				return
 			}
@@ -122,6 +122,7 @@ func (r *Runtime) initializeTask(ctx context.Context) (workers.Interface, string
 	if err != nil {
 		return nil, ""
 	}
+	log.Printf("✅ Plan generated: %s", plan)
 
 	return currentWorker, plan
 }

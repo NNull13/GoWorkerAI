@@ -9,10 +9,10 @@ const (
 )
 
 type Tool struct {
-	Name        string                         `json:"name"`
-	Description string                         `json:"description"`
-	Parameters  Parameter                      `json:"parameters"`
-	HandlerFunc func(ToolTask) (string, error) `json:"-"`
+	Name        string                      `json:"name"`
+	Description string                      `json:"description"`
+	Parameters  Parameter                   `json:"parameters"`
+	HandlerFunc func(ToolTask) (any, error) `json:"-"`
 }
 
 type Parameter struct {
