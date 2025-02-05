@@ -1,15 +1,17 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-type SQLiteStorage struct {
+type SQLiteContextStorage struct {
 	db *sql.DB
 }
 
@@ -21,82 +23,76 @@ func getDBPath() string {
 			log.Fatalf("❌ Error getting project directory: %v", err)
 		}
 		defaultPath := filepath.Join(projectDir, "data", "database.db")
-
 		if err := os.MkdirAll(filepath.Dir(defaultPath), os.ModePerm); err != nil {
 			log.Fatalf("❌ Error creating data directory: %v", err)
 		}
-
 		log.Printf("DB_PATH not set, using default: %s", defaultPath)
 		return defaultPath
 	}
 	return dbPath
 }
 
-func NewSQLiteStorage() *SQLiteStorage {
+func NewSQLiteStorage() *SQLiteContextStorage {
 	dbPath := getDBPath()
-
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatalf("❌ Error opening SQLite DB at %s: %v", dbPath, err)
 	}
-
 	_, err = db.Exec(`
-        CREATE TABLE IF NOT EXISTS task_history (
+        CREATE TABLE IF NOT EXISTS iterations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id TEXT NOT NULL,
-            iteration INTEGER NOT NULL,
-            action TEXT NOT NULL,
-            filename TEXT,
-            response TEXT NOT NULL,
-            PRIMARY KEY (task_id, iteration)
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            tool TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     `)
 	if err != nil {
 		log.Fatalf("❌ Error creating table: %v", err)
 	}
-
-	return &SQLiteStorage{db: db}
+	return &SQLiteContextStorage{db: db}
 }
 
-func (ts *SQLiteStorage) SaveRecord(record Record) error {
-	_, err := ts.db.Exec(`INSERT INTO task_history (task_id, iteration, action, filename, response) 
-		VALUES (?, ?, ?, ?, ?)`,
-
-		record.TaskID, record.Iteration, record.Action, record.Filename, record.Response,
+func (s *SQLiteContextStorage) SaveIteration(ctx context.Context, iteration Iteration) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO iterations (task_id, role, content, tool,created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		iteration.TaskID, iteration.Role, iteration.Content, iteration.Tool, iteration.CreatedAt,
 	)
-
 	if err != nil {
-		log.Printf("⚠️ Error saving iteration %d for task %s: %v", record.Iteration, record.TaskID, err)
+		log.Printf("⚠️ Error saving iteration for task %s: %v", iteration.TaskID, err)
 		return err
 	}
-
-	log.Printf("✅ Successfully saved iteration %d for task %s", record.Iteration, record.TaskID)
 	return nil
 }
 
-func (ts *SQLiteStorage) GetRecords(taskID string) ([]Record, error) {
-	rows, err := ts.db.Query(`SELECT iteration, action, filename, response 
-		FROM task_history WHERE task_id = ? ORDER BY iteration ASC`, taskID)
+func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID string) ([]Iteration, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, task_id, role, content, tool, created_at
+		 FROM iterations
+		 WHERE task_id = ?
+		 ORDER BY created_at ASC, id ASC`,
+		taskID,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var history []Record
+	var history []Iteration
 	for rows.Next() {
-		var record Record
-
-		if err = rows.Scan(&record.Iteration, &record.Action, &record.Filename, &record.Response); err != nil {
-			log.Printf("⚠️ Error scanning row: %v", err)
+		var it Iteration
+		var createdAt time.Time
+		if err = rows.Scan(&it.ID, &it.TaskID, &it.Role, &it.Content, &it.Tool, &createdAt); err != nil {
+			log.Printf("⚠️ Error scanning row for task %s: %v", taskID, err)
 			continue
 		}
-
-		record.TaskID = taskID
-		history = append(history, record)
+		it.CreatedAt = createdAt
+		history = append(history, it)
 	}
-
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-
 	return history, nil
 }

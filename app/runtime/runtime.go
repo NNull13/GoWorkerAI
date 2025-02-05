@@ -2,17 +2,15 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"GoWorkerAI/app/actions"
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
+	"GoWorkerAI/app/tools"
 	"GoWorkerAI/app/workers"
 )
 
@@ -20,19 +18,19 @@ type Runtime struct {
 	mu         sync.Mutex
 	worker     workers.Interface
 	model      models.Interface
-	actions    []actions.Action
+	toolkit    map[string]tools.Tool
 	events     chan Event
 	activeTask bool
 	cancelFunc context.CancelFunc
 	db         storage.Interface
 }
 
-func NewRuntime(worker workers.Interface, model models.Interface, initialActions []actions.Action, db storage.Interface, activeTask bool) *Runtime {
+func NewRuntime(worker workers.Interface, model models.Interface, initialActions map[string]tools.Tool, db storage.Interface, activeTask bool) *Runtime {
 	return &Runtime{
 		worker:     worker,
 		model:      model,
 		events:     make(chan Event, 100),
-		actions:    initialActions,
+		toolkit:    initialActions,
 		activeTask: activeTask,
 		db:         db,
 	}
@@ -57,9 +55,11 @@ func (r *Runtime) Start() {
 	}
 }
 
-func (r *Runtime) AddActions(newActions []actions.Action) {
+func (r *Runtime) AddTools(newActions []tools.Tool) {
 	r.mu.Lock()
-	r.actions = append(r.actions, newActions...)
+	for _, newAction := range newActions {
+		r.toolkit[newAction.Name] = newAction
+	}
 	r.mu.Unlock()
 }
 
@@ -72,7 +72,7 @@ func (r *Runtime) QueueEvent(event Event) {
 }
 
 func (r *Runtime) runTask(ctx context.Context) {
-	currentWorker, folderPath, plan := r.initializeTask(ctx)
+	currentWorker, plan := r.initializeTask(ctx)
 	if currentWorker == nil {
 		return
 	}
@@ -82,61 +82,24 @@ func (r *Runtime) runTask(ctx context.Context) {
 		return
 	}
 
-	r.executeIterations(ctx, currentWorker, folderPath, plan, task)
-}
-
-func (r *Runtime) initializeTask(ctx context.Context) (workers.Interface, string, string) {
-	r.mu.Lock()
-	currentWorker := r.worker
-	r.activeTask = false
-	r.mu.Unlock()
-
-	if currentWorker == nil {
-		return nil, "", ""
-	}
-
-	plan, err := r.model.GenerateResponse(ctx, currentWorker.PromptPlan(), 0.66, -1)
-	if err != nil {
-		return nil, "", ""
-	}
-
-	folderPath := r.prepareFolders(currentWorker)
-	return currentWorker, folderPath, plan
-}
-
-func (r *Runtime) executeIterations(ctx context.Context, worker workers.Interface, folderPath, plan string, task *workers.Task) {
-	taskID := task.ID.String()
 	maxIterations := task.MaxIterations
 
-	resume := "Not started the task yet"
+	var resume string
 	for i := 0; i <= maxIterations; i++ {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			actionTask, err := r.processAction(ctx, worker, plan, folderPath, resume)
+			prompt := currentWorker.PromptNextAction(plan, resume)
+			response, err := r.model.Process(ctx, prompt, r.toolkit, task.ID.String(), maxIterations)
 			if err != nil {
 				log.Printf("❌ Error executing action: %v", err)
 				break
 			}
-			log.Printf("✅ Action executed: %+v", actionTask)
-
-			r.mu.Lock()
-			err = r.db.SaveRecord(storage.Record{
-				TaskID:    taskID,
-				Action:    actionTask.Action,
-				Filename:  actionTask.Filename,
-				Response:  actionTask.Result,
-				Iteration: i,
-			})
-			r.mu.Unlock()
-
-			if err != nil {
-				break
-			}
+			log.Printf("✅ Process response: %s", response)
 
 			var validationResult bool
-			if resume, validationResult = r.validateAction(ctx, worker, plan, task.Task); validationResult {
+			if resume, validationResult = r.validateAction(ctx, currentWorker, plan, resume); validationResult {
 				log.Printf("🎉 Task successfully completed: %s", task.Task)
 				return
 			}
@@ -145,36 +108,28 @@ func (r *Runtime) executeIterations(ctx context.Context, worker workers.Interfac
 	log.Printf("🚧 Maximum iterations (%d) reached for task: %s", maxIterations, task.Task)
 }
 
-func (r *Runtime) processAction(ctx context.Context, worker workers.Interface, plan, folderPath, resume string) (*models.ActionTask, error) {
-	prompt := worker.PromptNextAction(plan, resume, r.actions)
+func (r *Runtime) initializeTask(ctx context.Context) (workers.Interface, string) {
+	r.mu.Lock()
+	currentWorker := r.worker
+	r.activeTask = false
+	r.mu.Unlock()
 
-	actionTask, err := r.model.Process(ctx, prompt)
-	if err != nil {
-		return nil, err
+	if currentWorker == nil {
+		return nil, ""
 	}
 
-	actionTask.Result, err = actions.ExecuteFileAction(actionTask, folderPath)
+	plan, err := r.model.Think(ctx, currentWorker.PromptPlan(), 0.66, -1)
 	if err != nil {
-		return nil, err
+		return nil, ""
 	}
 
-	return actionTask, nil
+	return currentWorker, plan
 }
 
 func (r *Runtime) validateAction(ctx context.Context, worker workers.Interface, plan, task string) (string, bool) {
-	records, err := r.db.GetRecords(task)
+	resume, err := r.model.GenerateSummary(ctx, task)
 	if err != nil {
 		return "", false
-	}
-
-	var recordHistory strings.Builder
-	for j, record := range records {
-		recordHistory.WriteString(fmt.Sprintf("- Record: `%d` Info: %v\n", j, record))
-	}
-
-	resume, err := r.model.GenerateResponse(ctx, []models.Message{}, 0.1, 500)
-	if err != nil {
-		return resume, false
 	}
 
 	log.Printf("✅ Resume generated: %s", resume)

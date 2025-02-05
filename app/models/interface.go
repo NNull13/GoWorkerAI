@@ -1,21 +1,20 @@
 package models
 
-import "context"
+import (
+	"context"
+
+	"GoWorkerAI/app/tools"
+)
 
 type Interface interface {
-	GenerateResponse(ctx context.Context, messages []Message, temperature float64, maxTokens int) (string, error)
-	Process(context.Context, []Message) (*ActionTask, error)
+	Think(context.Context, []Message, float64, int) (string, error)
+	Process(context.Context, []Message, map[string]tools.Tool, string, int) (string, error)
 	YesOrNo(context.Context, []Message) (bool, error)
+	GenerateSummary(context.Context, string) (string, error)
 }
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ActionTask struct {
-	Action   string `json:"action"`
-	Filename string `json:"filename,omitempty"`
-	Content  string `json:"content,omitempty"`
-	Result   string `json:"result,omitempty"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }

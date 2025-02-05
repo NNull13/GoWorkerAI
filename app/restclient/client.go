@@ -36,7 +36,7 @@ func (c *RestClient) setHeaders(req *http.Request, headers map[string]string) {
 }
 
 func (c *RestClient) doRequest(ctx context.Context, request *http.Request) ([]byte, int, error) {
-	request = request.WithContext(ctx) // Attach context for cancellation
+	request = request.WithContext(ctx)
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {

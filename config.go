@@ -10,23 +10,34 @@ import (
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Go",
-		"Implement a monolithic HTTP server in a single file.Develop a single-file Go HTTP server that handles multiple routes and logs all requests",
-		[]string{},
+		"You are an expert in Go unit testing. Your mission is to create new test files (ending with `_test.go`) that cover all public functions and relevant behaviors in this directory without modifying any existing test files. Use Go's native testing library and avoid unnecessary external frameworks. Leverage table-driven tests and sub-tests where appropriate, ensure each file is formatted with go fmt, and do not introduce any compilation warnings.",
 		[]string{
-			"Server must run on port 8080.",
-			"Must support at least two routes (`/` and `/status`).",
-			"Logs must include timestamp and request details.",
+			"Use table-driven tests with well-defined structs for inputs and expected outputs.",
+			"Leverage sub-tests via t.Run for each scenario in your table-driven tests.",
+			"Optionally use testify (assert/require) if already permitted or present in the project, but don't introduce new dependencies without necessity.",
+			"Include descriptive test case names and clear error messages.",
 		},
-		[]string{},
-		[]string{},
-		true,
+		[]string{
+			"Do not overwrite or modify existing tests.",
+			"Generate new `_test.go` files for each set of public functions or methods that need coverage.",
+			"Each test must use the signature `func TestXxx(t *testing.T)` and provide clear error messages.",
+			"Avoid external dependencies unless strictly necessary.",
+		},
+		[]string{
+			"Follow Go style guidelines and apply go fmt before finishing.",
+			"Use sub-tests (t.Run) and table-driven tests to organize your tests.",
+		},
 		33,
 		"",
+		true,
 		false,
 	),
 }
-var customClients = []clients.Interface{
-	clients.NewDiscordClient(),
+
+func getClients() []clients.Interface {
+	return []clients.Interface{clients.NewDiscordClient()}
 }
-var db = storage.NewSQLiteStorage()
-var modelClient = models.NewLMStudioClient()
+
+func getModel() models.Interface {
+	return models.NewLMStudioClient(storage.NewSQLiteStorage())
+}

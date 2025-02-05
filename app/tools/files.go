@@ -1,4 +1,4 @@
-package actions
+package tools
 
 import (
 	"errors"
@@ -7,28 +7,39 @@ import (
 	"os"
 	"path/filepath"
 
-	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/utils"
 )
 
-func ExecuteFileAction(action *models.ActionTask, folder string) (result string, err error) {
-	if action != nil {
-		switch action.Action {
-		case write_file:
-			err = writeToFile(folder, action.Filename, action.Content)
-			result = "Successfully wrote file " + action.Filename
-		case read_file:
-			result, err = readFile(folder, action.Filename)
-		case edit_file:
-			err = editFile(folder, action.Filename, action.Content)
-			result = "Successfully edited file " + action.Filename
-		case delete_file:
-			err = deleteFile(folder, action.Filename)
-			result = "Successfully deleted file " + action.Filename
-		case list_files:
-			result, err = listFiles(action.Filename)
-		}
+type FileAction struct {
+	Folder     string `json:"folder"`
+	FilePath   string `json:"file_path"`
+	Directory  string `json:"directory"`
+	NewContent string `json:"new_content"`
+	Content    string `json:"content"`
+}
+
+func ExecuteFileAction(action ToolTask) (result string, err error) {
+	var fileAction *FileAction
+	fileAction, _ = utils.CastAny[FileAction](action.Parameters)
+	if fileAction == nil {
+		return "", errors.New("File Action Not Found")
 	}
+	switch action.Key {
+	case write_file:
+		err = writeToFile("", fileAction.FilePath, fileAction.Content)
+		result = "Successfully wrote file " + fileAction.FilePath
+	case read_file:
+		result, err = readFile("", fileAction.FilePath)
+	case edit_file:
+		err = editFile("", fileAction.FilePath, fileAction.NewContent)
+		result = "Successfully edited file " + fileAction.FilePath
+	case delete_file:
+		err = deleteFile("", fileAction.FilePath)
+		result = "Successfully deleted file " + fileAction.FilePath
+	case list_files:
+		result, err = listFiles(fileAction.Directory)
+	}
+
 	return result, err
 }
 
@@ -104,20 +115,30 @@ func deleteFile(baseDir, filename string) error {
 }
 
 func listFiles(baseDir string) (string, error) {
-	if baseDir == "" {
-		var err error
-		baseDir, err = os.Getwd()
+	dir, err := os.Getwd()
+	if baseDir == "" || baseDir == "." {
+		baseDir = dir
+	}
+
+	var note string
+	baseDir = filepath.Clean(baseDir)
+	if _, err = os.Stat(baseDir); os.IsNotExist(err) {
+		log.Printf("⚠️ Directory %s not found. Falling back to current working directory.", baseDir)
+		note = "Could not find that directory. Used '.' instead; could try one of the listed directories:\n"
+		dir, err = os.Getwd()
 		if err != nil {
 			return "", err
 		}
+		baseDir = filepath.Clean(dir)
+	} else if err != nil {
+		return "", err
 	}
 
-	baseDir = filepath.Clean(baseDir)
 	tree, err := utils.BuildTree(baseDir, nil, nil)
 	if err != nil {
 		log.Printf("❌ Error building tree for directory %s: %v\n", baseDir, err)
 		return "", err
 	}
 
-	return tree, nil
+	return note + tree, nil
 }

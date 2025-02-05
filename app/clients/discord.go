@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"GoWorkerAI/app/actions"
-	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/runtime"
+	"GoWorkerAI/app/tools"
+	"GoWorkerAI/app/utils"
 	"GoWorkerAI/app/workers"
 
 	"github.com/bwmarrin/discordgo"
@@ -39,28 +39,47 @@ func NewDiscordClient() *DiscordClient {
 
 func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 	c.runtime = rt
-	discordActions := []actions.Action{
+	discordActions := []tools.Tool{
 		{
-			Key: "send_discord_message",
-			HandlerFunc: func(action *models.ActionTask, folder string) (result string, err error) {
-				channelID := action.Filename
-				messageText := action.Content
-				err = c.SendMessage(channelID, messageText)
+			Name:        "send_discord_message",
+			Description: "Use this action to send a text message to a specific Discord channel.",
+			Parameters: tools.Parameter{
+				Type: "object",
+				Properties: map[string]any{
+					"channel_id": map[string]any{
+						"type":        "string",
+						"description": "Discord channel ID where the message will be sent. Use Default 1324515336980004949",
+					},
+					"message": map[string]any{
+						"type":        "string",
+						"description": "The content of the message to send.",
+					},
+				},
+				Required: []string{"channel_id", "message"},
+			},
+			HandlerFunc: func(tool tools.ToolTask) (string, error) {
+				discordParams, err := utils.CastAny[discordParameters](tool.Parameters)
 				if err != nil {
 					return "", err
 				}
-				return "Message successfully sent to Discord channel " + channelID, nil
+
+				err = c.SendMessage(discordParams.ChannelID, discordParams.Message)
+				if err != nil {
+					return "", err
+				}
+				return "Message successfully sent to Discord channel " + discordParams.ChannelID, nil
 			},
-			Description: "Use this action to send a message to a Discord channel.\n" +
-				"You must provide 'channel_id' in the filename field, and 'content' as the message text.\n\n" +
-				"**Example**:\n```json\n{\n  \"action\": \"send_discord_message\",\n  \"filename\": \"123456789012345678\",\n  \"content\": \"Hello from the AI!\"\n}\n```\n\n" +
-				"When to use:\n" +
-				"- You want to post or reply in a specific channel.\n" +
-				"- You have the correct 'channel_id' to target.\n",
 		},
 	}
-	c.runtime.AddActions(discordActions)
+	c.runtime.AddTools(discordActions)
+
 	c.Open()
+
+}
+
+type discordParameters struct {
+	Message   string `json:"message"`
+	ChannelID string `json:"channel_id"`
 }
 
 func (c *DiscordClient) Open() error {

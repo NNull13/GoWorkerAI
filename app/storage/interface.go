@@ -1,14 +1,20 @@
 package storage
 
+import (
+	"context"
+	"time"
+)
+
 type Interface interface {
-	SaveRecord(record Record) error
-	GetRecords(taskID string) ([]Record, error)
+	SaveIteration(ctx context.Context, iteration Iteration) error
+	GetHistoryByTaskID(ctx context.Context, taskID string) ([]Iteration, error)
 }
 
-type Record struct {
+type Iteration struct {
+	ID        int64
 	TaskID    string
-	Iteration int
-	Action    string
-	Filename  string
-	Response  string
+	Role      string
+	Tool      string
+	Content   string
+	CreatedAt time.Time
 }

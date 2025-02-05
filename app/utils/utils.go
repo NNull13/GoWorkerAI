@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -55,9 +56,19 @@ func BuildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) (strin
 	}
 	if skipDirs == nil {
 		skipDirs = map[string]bool{
-			".git":  true,
-			".idea": true,
-			"logs":  true,
+			".git":         true, // Version control (Git)
+			".github":      true, // GitHub Actions/workflows
+			".idea":        true, // IntelliJ/GoLand IDE settings
+			".vscode":      true, // VSCode settings
+			"node_modules": true, // JS/Node.js dependencies
+			"vendor":       true, // Go vendor directory
+			"dist":         true, // Build artifacts
+			"build":        true, // Build artifacts
+			"bin":          true, // Compiled binaries
+			"obj":          true, // Object files
+			".cache":       true, // General caching
+			".DS_Store":    true, // macOS file metadata
+			"logs":         true, // Log files or directories
 		}
 	}
 	entries, err := os.ReadDir(dir)
@@ -88,4 +99,28 @@ func HashEmbedding(embedding []float64) string {
 	}
 
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func ParseArguments(arguments string) (map[string]any, error) {
+	var result map[string]any
+	err := json.Unmarshal([]byte(arguments), &result)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing arguments: %w", err)
+	}
+	return result, nil
+}
+
+func CastAny[T any](v any) (*T, error) {
+	var result T
+	jsonData, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing input to JSON: %w", err)
+	}
+
+	err = json.Unmarshal(jsonData, &result)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing JSON: %w", err)
+	}
+
+	return &result, nil
 }

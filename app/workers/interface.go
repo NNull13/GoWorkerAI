@@ -3,15 +3,14 @@ package workers
 import (
 	"github.com/google/uuid"
 
-	"GoWorkerAI/app/actions"
 	"GoWorkerAI/app/models"
 )
 
 type Interface interface {
 	Base
 	PromptPlan() []models.Message
-	PromptNextAction(plan, resume string, actions []actions.Action) []models.Message
-	PromptValidation(plan string, recordsResume string) []models.Message
+	PromptNextAction(plan, resume string) []models.Message
+	PromptValidation(plan, resume string) []models.Message
 }
 
 type Base interface {
