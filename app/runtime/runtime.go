@@ -152,9 +152,3 @@ func (r *Runtime) prepareFolders(w workers.Interface) string {
 	os.MkdirAll("logs", os.ModePerm)
 	return folder
 }
-
-func (r *Runtime) handleEvent(ev Event) {
-	r.mu.Lock()
-	log.Printf("🆕 New Event received: %s Task: %v\n", ev.HandlerFunc(r, ev), ev.Task)
-	r.mu.Unlock()
-}

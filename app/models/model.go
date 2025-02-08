@@ -14,7 +14,6 @@ type Interface interface {
 }
 
 type Message struct {
-	Role      string     `json:"role"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role    string `json:"role"`
+	Content string `json:"content,omitempty"`
 }

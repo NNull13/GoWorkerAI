@@ -3,7 +3,9 @@ package runtime
 import (
 	"context"
 	"log"
+	"time"
 
+	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/workers"
 )
 
@@ -13,8 +15,24 @@ const (
 )
 
 type Event struct {
+	Context     string
 	Task        *workers.Task
 	HandlerFunc func(r *Runtime, ev Event) string
+}
+
+func (r *Runtime) SaveEventOnHistory(content string) {
+	r.db.SaveHistory(context.Background(), storage.Record{
+		TaskID:    r.worker.GetTask().ID.String(),
+		Role:      "event",
+		Content:   content,
+		CreatedAt: time.Now(),
+	})
+}
+
+func (r *Runtime) handleEvent(ev Event) {
+	r.mu.Lock()
+	log.Printf("🆕 New Event received: %s Task: %v\n", ev.HandlerFunc(r, ev), ev.Task)
+	r.mu.Unlock()
 }
 
 var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{

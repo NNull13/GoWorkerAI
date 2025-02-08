@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -51,15 +50,6 @@ func BuildTree(dir string, tree treeprint.Tree, skipDirs map[string]bool) (strin
 		}
 	}
 	return tree.String(), nil
-}
-
-func ToJSON(input any) string {
-	data, err := json.Marshal(input)
-	if err != nil {
-		log.Printf("⚠️ Error serializing iteration: %v", err)
-		return "{}"
-	}
-	return string(data)
 }
 
 func ParseArguments(arguments string) (map[string]any, error) {

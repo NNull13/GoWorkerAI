@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"time"
 )
 
 type RestClient struct {
@@ -17,11 +16,9 @@ type RestClient struct {
 
 func NewRestClient(baseURL string, headers map[string]string) *RestClient {
 	return &RestClient{
-		baseURL: baseURL,
-		headers: headers,
-		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
-		},
+		baseURL:    baseURL,
+		headers:    headers,
+		httpClient: &http.Client{},
 	}
 }
 

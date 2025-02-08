@@ -26,59 +26,6 @@ const (
 	embeddingModel    = "text-embedding-nomic-embed-text-v1.5-embedding"
 )
 
-type requestPayload struct {
-	Model       string            `json:"model"`
-	Messages    []Message         `json:"messages"`
-	Temperature float64           `json:"temperature"`
-	MaxTokens   int               `json:"max_tokens"`
-	Tools       []FunctionPayload `json:"tools"`
-}
-
-type FunctionPayload struct {
-	Type     string     `json:"type"`
-	Function tools.Tool `json:"function"`
-}
-
-type embeddingRequestPayload struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
-}
-
-type embeddingResponse struct {
-	Object string `json:"object"`
-	Data   []struct {
-		Embedding []float64 `json:"embedding"`
-	} `json:"data"`
-}
-type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
-}
-
-type ToolFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-type ResponseLLM struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Index        int     `json:"index"`
-		Logprobs     *string `json:"logprobs,omitempty"`
-		FinishReason string  `json:"finish_reason"`
-		Message      Message `json:"message"`
-	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
-}
-
 type LMStudioClient struct {
 	restClient *restclient.RestClient
 	storage    storage.Interface
@@ -160,7 +107,6 @@ func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolk
 
 	message := response.Choices[0].Message
 	for i := 0; ; i++ {
-		messages = append(messages, message)
 		messages = append(messages, mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID)...)
 		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
 			return "", err
@@ -171,7 +117,7 @@ func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolk
 		}
 	}
 
-	mc.storage.SaveIteration(ctx, storage.Iteration{
+	mc.storage.SaveHistory(ctx, storage.Record{
 		TaskID:    taskID,
 		Role:      "assistant",
 		Content:   message.Content,
@@ -182,43 +128,59 @@ func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolk
 }
 
 func (mc *LMStudioClient) handleToolCalls(ctx context.Context, toolkit map[string]tools.Tool,
-	toolCalls []ToolCall, taskID string) (messages []Message) {
+	toolCalls []toolCall, taskID string) (messages []Message) {
 	for _, call := range toolCalls {
 		toolTask := tools.ToolTask{Key: call.Function.Name}
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
-
 		tool, exists := toolkit[toolTask.Key]
 		if !exists || tool.HandlerFunc == nil {
 			log.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
 			continue
 		}
 
-		var result any
-		var err error
-		if result, err = tool.HandlerFunc(toolTask); err != nil {
+		result, err := tool.HandlerFunc(toolTask)
+		if err != nil {
 			log.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
-			continue
+			result = err.Error()
 		}
 
-		resultJSON, _ := json.Marshal(result)
-		mc.storage.SaveIteration(ctx, storage.Iteration{
+		mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
 			Role:       "tool",
 			Tool:       tool.Name,
-			Content:    string(resultJSON),
+			Content:    result,
 			Parameters: call.Function.Arguments,
 			CreatedAt:  time.Now(),
 		})
 
-		messages = append(messages, Message{
-			Role: "assistant",
-		}, Message{
-			Role:    "tool",
-			Content: string(resultJSON),
-		})
+		messages = append(messages,
+			Message{
+				Role:    "tool",
+				Content: result,
+			},
+		)
 	}
 
 	return messages
+}
+
+func (mc *LMStudioClient) enrichWithEmbeddings(ctx context.Context, messages []Message) ([]Message, error) {
+	var enhancedMessages []Message
+	for _, msg := range messages {
+		embedding, err := mc.getEmbeddings(ctx, msg.Content)
+		if err != nil {
+			log.Printf("⚠️ Error obtaining embedding for message: %s", msg.Content)
+			enhancedMessages = append(enhancedMessages, msg)
+			return nil, err
+		}
+
+		enhancedMessages = append(enhancedMessages, Message{
+			Role:    msg.Role,
+			Content: msg.Content + "\n\nEmbedding hash: " + hashEmbedding(embedding),
+		})
+	}
+
+	return enhancedMessages, nil
 }
 
 func (mc *LMStudioClient) getEmbeddings(ctx context.Context, input string) ([]float64, error) {
@@ -251,27 +213,6 @@ func (mc *LMStudioClient) getEmbeddings(ctx context.Context, input string) ([]fl
 	return embeddingResp.Data[0].Embedding, nil
 }
 
-func (mc *LMStudioClient) enrichWithEmbeddings(ctx context.Context, messages []Message) ([]Message, error) {
-	var enhancedMessages []Message
-
-	for _, msg := range messages {
-		embedding, err := mc.getEmbeddings(ctx, msg.Content)
-		if err != nil {
-			log.Printf("⚠️ Error obtaining embedding for message: %s", msg.Content)
-			enhancedMessages = append(enhancedMessages, msg)
-			continue
-		}
-
-		embeddingStr := fmt.Sprintf("Embedding hash: %s", hashEmbedding(embedding))
-		enhancedMessages = append(enhancedMessages, Message{
-			Role:    msg.Role,
-			Content: msg.Content + "\n\n" + embeddingStr,
-		})
-	}
-
-	return enhancedMessages, nil
-}
-
 func hashEmbedding(embedding []float64) string {
 	hash := sha256.New()
 	for _, value := range embedding {
@@ -281,6 +222,13 @@ func hashEmbedding(embedding []float64) string {
 }
 
 func (mc *LMStudioClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
+	enrichedMessages, err := mc.enrichWithEmbeddings(ctx, messages)
+	if err != nil {
+		log.Printf("⚠️ Error enriching messages with embeddings: %v", err)
+	} else {
+		messages = enrichedMessages
+	}
+
 	payload := requestPayload{
 		Model:       model,
 		Tools:       functionsToPayload(tools),
@@ -292,9 +240,9 @@ func (mc *LMStudioClient) generateResponse(ctx context.Context, messages []Messa
 	return mc.sendRequestAndParse(ctx, payload, 3)
 }
 
-func functionsToPayload(functions map[string]tools.Tool) (payload []FunctionPayload) {
+func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayload) {
 	for _, function := range functions {
-		payload = append(payload, FunctionPayload{
+		payload = append(payload, functionPayload{
 			Type:     "function",
 			Function: function,
 		})
@@ -318,7 +266,8 @@ func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload reque
 
 			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
 			if err != nil || status != 200 {
-				log.Printf("⚠️ Attempt %d failed: HTTP %d | Error: %v | Payload %v", i+1, status, err, payload)
+				log.Printf("⚠️ Attempt %d failed: HTTP %d | Response: %s | Error: %v | Payload %v",
+					i+1, string(response), status, err, payload)
 				continue
 			}
 

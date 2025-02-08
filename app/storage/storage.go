@@ -6,11 +6,11 @@ import (
 )
 
 type Interface interface {
-	SaveIteration(ctx context.Context, iteration Iteration) error
-	GetHistoryByTaskID(ctx context.Context, taskID string) ([]Iteration, error)
+	SaveHistory(ctx context.Context, iteration Record) error
+	GetHistoryByTaskID(ctx context.Context, taskID string) ([]Record, error)
 }
 
-type Iteration struct {
+type Record struct {
 	ID         int64     `json:"id" db:"id"`
 	TaskID     string    `json:"task_id" db:"task_id"`
 	Role       string    `json:"role" db:"role"`

@@ -15,8 +15,8 @@ import (
 )
 
 type DiscordClient struct {
+	Client
 	session   *discordgo.Session
-	runtime   *runtime.Runtime
 	channelID string
 }
 
@@ -60,8 +60,7 @@ func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 				},
 				Required: []string{"channel_id", "message"},
 			},
-			HandlerFunc: func(tool tools.ToolTask) (any, error) {
-
+			HandlerFunc: func(tool tools.ToolTask) (string, error) {
 				discordParams, err := utils.CastAny[discordParameters](tool.Parameters)
 				if err != nil {
 					return "", err
@@ -69,10 +68,7 @@ func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 
 				err = c.SendMessage(discordParams.ChannelID, discordParams.Message)
 
-				return tools.GenericResult{
-					Error:  err,
-					Result: "Message successfully sent to Discord channel " + discordParams.ChannelID,
-				}, nil
+				return "✅ Message successfully sent to Discord channel " + discordParams.ChannelID, nil
 			},
 		},
 	}
@@ -106,6 +102,7 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 	if m.Author.ID != os.Getenv("DISCORD_ADMIN") {
 		return
 	}
+	c.runtime.SaveEventOnHistory(m.Content)
 	if strings.HasPrefix(m.Content, "!task") {
 		parts := strings.Fields(m.Content)
 		if len(parts) < 2 {
@@ -113,8 +110,8 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 			return
 		}
 
+		var msg string
 		cmd := parts[1]
-
 		switch cmd {
 		case "create":
 			description := strings.Join(parts[2:], " ")
@@ -127,18 +124,17 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.NewTask],
 			}
 			c.runtime.QueueEvent(ev)
-			s.ChannelMessageSend(m.ChannelID, "New task created: "+description)
-
+			msg = "New task created: " + description
 		case "cancel":
 			ev := runtime.Event{
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.CancelTask],
 			}
 			c.runtime.QueueEvent(ev)
-			s.ChannelMessageSend(m.ChannelID, "Active task cancelled.")
-
+			msg = "Active task cancelled."
 		default:
-			s.ChannelMessageSend(m.ChannelID, "Unknown task command. Use: create | cancel")
+			msg = "Unknown task command. Use: create | cancel"
 		}
+		s.ChannelMessageSend(m.ChannelID, msg)
 	}
 }
 
