@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 )
@@ -42,6 +43,9 @@ func (c *RestClient) doRequest(ctx context.Context, request *http.Request) ([]by
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK {
+		err = errors.New(string(body))
+	}
 	return body, response.StatusCode, err
 }
 

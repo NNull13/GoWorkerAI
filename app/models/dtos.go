@@ -2,11 +2,6 @@ package models
 
 import "GoWorkerAI/app/tools"
 
-type MessageLMStudio struct {
-	Message
-	ToolCalls []toolCall `json:"tool_calls,omitempty"`
-}
-
 type toolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
@@ -29,10 +24,10 @@ type ResponseLLM struct {
 	Created int64  `json:"created"`
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int             `json:"index"`
-		Logprobs     *string         `json:"logprobs,omitempty"`
-		FinishReason string          `json:"finish_reason"`
-		Message      MessageLMStudio `json:"message"`
+		Index        int     `json:"index"`
+		Logprobs     *string `json:"logprobs,omitempty"`
+		FinishReason string  `json:"finish_reason"`
+		Message      Message `json:"message"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`

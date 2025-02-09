@@ -11,12 +11,13 @@ import (
 
 func main() {
 	log.SetOutput(os.Stdout)
-	model := getModel()
+	db := getDB()
+	model := getModel(db)
 	clients := getClients()
 	var wg sync.WaitGroup
 	for _, worker := range customWorkers {
 		wg.Add(1)
-		r := runtime.NewRuntime(worker, model, tools.WorkerTools, nil, worker.GetTask() != nil)
+		r := runtime.NewRuntime(worker, model, tools.WorkerTools, db, worker.GetTask() != nil)
 		for _, client := range clients {
 			client.Subscribe(r)
 		}

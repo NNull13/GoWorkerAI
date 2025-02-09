@@ -5,7 +5,7 @@ GoWorkerAI is an AI-powered worker builder in Go. It aims to help developers aut
 
 ---
 
-## 🚀 installation
+## 🚀 Installation
 
 1. **clone the repository**  
    open a terminal and run the following commands:
@@ -25,9 +25,7 @@ GoWorkerAI is an AI-powered worker builder in Go. It aims to help developers aut
 ---
 
 
-## 👥 contribution
-
-we welcome contributions to the project! follow these steps to get started:
+## 👥 Collaborations
 
 1. **fork the repository**
 2. **create a new branch**:

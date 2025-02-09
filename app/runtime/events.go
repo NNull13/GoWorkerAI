@@ -23,6 +23,7 @@ type Event struct {
 func (r *Runtime) SaveEventOnHistory(content string) {
 	r.db.SaveHistory(context.Background(), storage.Record{
 		TaskID:    r.worker.GetTask().ID.String(),
+		StepID:    0,
 		Role:      "event",
 		Content:   content,
 		CreatedAt: time.Now(),
@@ -54,7 +55,7 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 			r.activeTask = false
 			r.worker.SetTask(nil)
 			if r.cancelFunc != nil {
-				r.cancelFunc() // Stops the current `runTask`
+				r.cancelFunc()
 			}
 		} else {
 			log.Println("⚠️ No active task to cancel.")

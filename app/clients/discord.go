@@ -14,6 +14,8 @@ import (
 	"GoWorkerAI/app/workers"
 )
 
+var _ Interface = &DiscordClient{}
+
 type DiscordClient struct {
 	Client
 	session   *discordgo.Session

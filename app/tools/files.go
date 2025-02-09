@@ -138,6 +138,7 @@ func deleteFile(baseDir, filename string) (string, error) {
 }
 
 func listFiles(baseDir string) (string, error) {
+	var note, tree string
 	cwd, err := os.Getwd()
 	if baseDir == "" || baseDir == "." {
 		baseDir = cwd
@@ -151,15 +152,15 @@ func listFiles(baseDir string) (string, error) {
 			return "", err
 		}
 		baseDir = filepath.Clean(cwd)
-		log.Printf("⚠️ Could not find that directory. Using '.' instead.\n")
+		note = fmt.Sprintf("⚠️ Could not find that directory. Used '.' instead.\n")
 	}
-	tree, err := utils.BuildTree(baseDir, nil, nil)
+	tree, err = utils.BuildTree(baseDir, nil, nil)
 	if err != nil {
 		log.Printf("❌ Error building tree for directory %s: %v\n", baseDir, err)
 		return "", err
 	}
 	log.Printf("✅ Directory listing generated for %s.\n", baseDir)
-	return tree, nil
+	return note + tree, nil
 }
 
 func copyFileDirectoryInternal(source, destination string) (string, error) {

@@ -3,14 +3,14 @@ package runtime
 import (
 	"context"
 	"log"
-	"os"
-	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/tools"
+	"GoWorkerAI/app/utils"
 	"GoWorkerAI/app/workers"
 )
 
@@ -25,7 +25,8 @@ type Runtime struct {
 	db         storage.Interface
 }
 
-func NewRuntime(worker workers.Interface, model models.Interface, initialActions map[string]tools.Tool, db storage.Interface, activeTask bool) *Runtime {
+func NewRuntime(worker workers.Interface, model models.Interface, initialActions map[string]tools.Tool,
+	db storage.Interface, activeTask bool) *Runtime {
 	return &Runtime{
 		worker:     worker,
 		model:      model,
@@ -72,83 +73,109 @@ func (r *Runtime) QueueEvent(event Event) {
 }
 
 func (r *Runtime) runTask(ctx context.Context) {
-	currentWorker, plan := r.initializeTask(ctx)
-	if currentWorker == nil {
-		return
-	}
-
-	task := currentWorker.GetTask()
-	if task == nil {
-		return
-	}
-
-	maxIterations := task.MaxIterations
-
-	var resume string
-	for i := 0; i <= maxIterations; i++ {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			prompt := currentWorker.PromptNextAction(plan, resume)
-			response, err := r.model.Process(ctx, prompt, r.toolkit, task.ID.String(), maxIterations)
-			if err != nil {
-				log.Printf("❌ Error executing action: %v", err)
-				break
-			}
-			log.Printf("✅ Process response: %s", response)
-
-			var validationResult bool
-			if resume, validationResult = r.validateAction(ctx, currentWorker, plan, task.ID.String()); validationResult {
-				log.Printf("🎉 Task successfully completed: %s", task.Task)
-				return
-			}
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("❌ Panic recovered in runTask: %v\nStack trace:\n%s", rec, debug.Stack())
 		}
-	}
-	log.Printf("🚧 Maximum iterations (%d) reached for task: %s", maxIterations, task.Task)
-}
+	}()
 
-func (r *Runtime) initializeTask(ctx context.Context) (workers.Interface, string) {
 	r.mu.Lock()
 	currentWorker := r.worker
 	r.activeTask = false
 	r.mu.Unlock()
 
 	if currentWorker == nil {
-		return nil, ""
+		log.Printf("⚠️ No worker assigned, cannot run task.\n")
+		return
 	}
 
-	plan, err := r.model.Think(ctx, currentWorker.PromptPlan(), 0.66, -1)
+	task := currentWorker.GetTask()
+	if task == nil {
+		log.Printf("⚠️ Worker returned nil task.\n")
+		return
+	}
+	taskID := task.ID.String()
+
+	log.Printf("▶️ Starting task: %s\n", task.Task)
+	taskInfo := currentWorker.TaskInformation()
+	plan, err := r.model.Think(ctx, currentWorker.PromptPlan(taskInfo), 0.33, -1)
 	if err != nil {
-		return nil, ""
+		log.Printf("❌ Error generating initial plan: %v\n", err)
+		return
 	}
-	log.Printf("✅ Plan generated: %s", plan)
+	log.Printf("✅ Plan generated:\n%s\n", plan)
 
-	return currentWorker, plan
+	steps := utils.SplitPlanIntoSteps(plan)
+	if len(steps) == 0 {
+		log.Printf("⚠️ Could not split plan into steps, aborting.\n")
+		return
+	}
+	log.Printf("✅ Detected %d step(s) in plan.\n", len(steps))
+
+	var summary string
+	for stepIndex, step := range steps {
+		completed, newSummary := r.executeStep(ctx, currentWorker, taskID, stepIndex, step, task.MaxIterations, summary, plan, steps)
+		if !completed {
+			log.Printf("❌ Step %d could not be completed, continue with task execution.\n", stepIndex+1)
+		}
+		summary = newSummary
+	}
+
+	history, err := r.db.GetHistoryByTaskID(ctx, taskID, 0)
+	if err != nil {
+		log.Printf("❌ Error final GetHistoryByTaskID: %s\n", err.Error())
+	}
+	finalSummary, _ := r.model.GenerateSummary(ctx, history)
+	log.Printf("✅ Final summary: %s\n", finalSummary)
+
+	decision, err := r.model.YesOrNo(ctx, currentWorker.PromptValidation(plan, finalSummary))
+	if err != nil {
+		log.Printf("❌ Error in final validation: %v\n", err)
+		return
+	}
+	if decision {
+		log.Printf("🎉 Task successfully completed: %s\n", task.Task)
+	} else {
+		log.Printf("🚧 Task is not fully completed according to validation: %s\n", task.Task)
+	}
 }
 
-func (r *Runtime) validateAction(ctx context.Context, worker workers.Interface, plan, task string) (string, bool) {
-	resume, err := r.model.GenerateSummary(ctx, task)
-	if err != nil {
-		return "", false
+func (r *Runtime) executeStep(ctx context.Context, worker workers.Interface, taskID string, stepIndex int, step string,
+	maxIterations int, currentSummary, plan string, steps []string) (bool, string) {
+	for attempt := 0; attempt < maxIterations; attempt++ {
+		select {
+		case <-ctx.Done():
+			log.Printf("⚠️ Context canceled, stopping task.\n")
+			return false, currentSummary
+		default:
+			log.Printf("▶️ Executing step %d (attempt %d): %s\n", stepIndex+1, attempt+1, step)
+			prompt := worker.PromptSegmentedStep(steps, stepIndex, currentSummary)
+			response, perr := r.model.Process(ctx, prompt, r.toolkit, taskID)
+			if perr != nil {
+				log.Printf("❌ Error processing step %d attempt %d: %v\n", stepIndex+1, attempt+1, perr)
+				continue
+			}
+			log.Printf("✅ Step %d response:\n%s\n", stepIndex+1, response)
+
+			history, err := r.db.GetHistoryByTaskID(ctx, taskID, stepIndex)
+			if err != nil {
+				log.Printf("❌ Error retrieving history for step %d: %v\n", stepIndex+1, err)
+				continue
+			}
+
+			currentSummary, _ = r.model.GenerateSummary(ctx, history)
+			log.Printf("ℹ️ Current step %d summary: %s\n", stepIndex+1, currentSummary)
+
+			stepCompleted, err := r.model.YesOrNo(ctx, worker.PromptValidation(plan, currentSummary))
+			if err != nil {
+				log.Printf("❌ Error validating step %d: %v\n", stepIndex+1, err)
+				continue
+			}
+			if stepCompleted {
+				log.Printf("✅ Step %d completed successfully\n", stepIndex+1)
+				return true, currentSummary
+			}
+		}
 	}
-
-	log.Printf("✅ Resume generated: %s", resume)
-
-	validationResult, err := r.model.YesOrNo(ctx, worker.PromptValidation(plan, resume))
-	if err != nil {
-		return resume, false
-	}
-
-	return resume, validationResult
-}
-
-func (r *Runtime) prepareFolders(w workers.Interface) string {
-	folder := w.GetFolder()
-	if w.GetLockFolder() {
-		folder = filepath.Join("generations", folder+time.Now().Format("20060102_150405"))
-		os.MkdirAll(folder, os.ModePerm)
-	}
-	os.MkdirAll("logs", os.ModePerm)
-	return folder
+	return false, currentSummary
 }

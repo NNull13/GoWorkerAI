@@ -156,29 +156,31 @@ var WorkerTools = map[string]Tool{
 		},
 		HandlerFunc: executeFileAction,
 	},
-	search_file: {
-		Name:        search_file,
-		Description: "Use this action to search for a text pattern or regex in a file or directory. If it's a directory, optionally search recursively.",
-		Parameters: Parameter{
-			Type: "object",
-			Properties: map[string]any{
-				"path": map[string]any{
-					"type":        "string",
-					"description": "The file or directory path where to search.",
+	/*
+		search_file: {
+			Name:        search_file,
+			Description: "Use this action to search for a text pattern or regex in a file or directory. If it's a directory, optionally search recursively.",
+			Parameters: Parameter{
+				Type: "object",
+				Properties: map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "The file or directory path where to search.",
+					},
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "The pattern (plaintext or regex) to look for.",
+					},
+					"recursive": map[string]any{
+						"type":        "boolean",
+						"description": "Whether to search in subdirectories if path is a directory.",
+					},
 				},
-				"pattern": map[string]any{
-					"type":        "string",
-					"description": "The pattern (plaintext or regex) to look for.",
-				},
-				"recursive": map[string]any{
-					"type":        "boolean",
-					"description": "Whether to search in subdirectories if path is a directory.",
-				},
+				Required: []string{"path", "pattern"},
 			},
-			Required: []string{"path", "pattern"},
+			HandlerFunc: executeFileAction,
 		},
-		HandlerFunc: executeFileAction,
-	},
+	*/
 	create_directory: {
 		Name:        create_directory,
 		Description: "Use this action to create a new directory (and parent directories if necessary) at the given path.",

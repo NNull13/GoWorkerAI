@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/xlab/treeprint"
 )
@@ -74,4 +76,16 @@ func CastAny[T any](v any) (*T, error) {
 	}
 
 	return &result, nil
+}
+
+func SplitPlanIntoSteps(plan string) []string {
+	var steps []string
+	lines := strings.Split(plan, "\n")
+	re := regexp.MustCompile(`^\d+\.\s*\[(.*?)\]\s*$`)
+	for _, line := range lines {
+		if match := re.FindStringSubmatch(strings.TrimSpace(line)); len(match) == 2 {
+			steps = append(steps, match[1])
+		}
+	}
+	return steps
 }

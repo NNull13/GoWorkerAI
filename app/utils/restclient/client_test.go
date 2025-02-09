@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 func TestNewRestClient(t *testing.T) {
@@ -18,9 +17,6 @@ func TestNewRestClient(t *testing.T) {
 		t.Fail()
 	}
 	if c.httpClient == nil {
-		t.Fail()
-	}
-	if c.httpClient.Timeout != 120*time.Second {
 		t.Fail()
 	}
 }

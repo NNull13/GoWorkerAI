@@ -11,6 +11,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+var _ Interface = &SQLiteContextStorage{}
+
 type SQLiteContextStorage struct {
 	db *sql.DB
 }
@@ -43,14 +45,15 @@ func NewSQLiteStorage() *SQLiteContextStorage {
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER NOT NULL,
             task_id TEXT NOT NULL,
+            step_id INTEGER,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             tool TEXT NULL,
             parameters TEXT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (task_id, id) 
+            PRIMARY KEY (task_id, id)
         );
-        CREATE INDEX IF NOT EXISTS idx_task_id ON records (task_id); 
+        CREATE INDEX IF NOT EXISTS idx_task_id ON records (task_id);
     `)
 	if err != nil {
 		log.Fatalf("❌ Error creating table: %v", err)
@@ -72,9 +75,9 @@ func (s *SQLiteContextStorage) SaveHistory(ctx context.Context, record Record) e
 	record.ID = lastID + 1
 
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO records (id, task_id, role, content, tool, parameters, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, datetime(?))`,
-		record.ID, record.TaskID, record.Role, record.Content, record.Tool, record.Parameters, record.CreatedAt.Format("2006-01-02 15:04:05"),
+		`INSERT INTO records (id, task_id, step_id, role, content, tool, parameters, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, datetime(?))`,
+		record.ID, record.TaskID, record.StepID, record.Role, record.Content, record.Tool, record.Parameters, record.CreatedAt.Format("2006-01-02 15:04:05"),
 	)
 	if err != nil {
 		log.Printf("⚠️ Error saving record for task %s: %v", record.TaskID, err)
@@ -84,14 +87,19 @@ func (s *SQLiteContextStorage) SaveHistory(ctx context.Context, record Record) e
 	return nil
 }
 
-func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID string) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, task_id, role, content, tool, parameters, created_at
-		 FROM records
-		 WHERE task_id = ?
-		 ORDER BY id ASC`,
-		taskID,
-	)
+func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID string, stepID ...int) ([]Record, error) {
+	query := `
+         SELECT id, task_id, step_id, role, content, tool, parameters, created_at
+         FROM records
+         WHERE task_id = ?`
+	args := []any{taskID}
+	if len(stepID) > 0 {
+		query += " AND step_id = ?"
+		args = append(args, stepID[0])
+	}
+	query += " ORDER BY id ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +109,10 @@ func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID st
 	for rows.Next() {
 		var it Record
 		var createdAt string
-		if err = rows.Scan(&it.ID, &it.TaskID, &it.Role, &it.Content, &it.Tool, &it.Parameters, &createdAt); err != nil {
+		if err = rows.Scan(&it.ID, &it.TaskID, &it.StepID, &it.Role, &it.Content, &it.Tool, &it.Parameters, &createdAt); err != nil {
 			log.Printf("⚠️ Error scanning row for task %s: %v", taskID, err)
 			continue
 		}
-
 		it.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 		history = append(history, it)
 	}

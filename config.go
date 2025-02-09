@@ -7,6 +7,17 @@ import (
 	"GoWorkerAI/app/workers"
 )
 
+const (
+	qwenModel          = "qwen2.5-7b-instruct-1m"
+	qwenCoderModel     = "qwen2.5-coder-7b-instruct"
+	mistralModel       = "mistral-nemo-instruct-2407"
+	deepSeekModel      = "deepseek-r1-distill-qwen-7b"
+	yiModel            = "yi-coder-9b-chat"
+	embeddingModel     = "text-embedding-nomic-embed-text-v1.5-embedding"
+	embeddingModelMini = "text-embedding-all-minilm-l6-v2-embedding"
+	//  ...
+)
+
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Go",
@@ -32,7 +43,7 @@ var customWorkers = []workers.Interface{
 			"Follow Go style guidelines and apply go fmt before finishing.",
 			"Use sub-tests (t.Run) and table-driven tests to organize your tests.",
 		},
-		33,
+		5,
 		"",
 		true,
 		false,
@@ -43,6 +54,10 @@ func getClients() []clients.Interface {
 	return []clients.Interface{clients.NewDiscordClient()}
 }
 
-func getModel() models.Interface {
-	return models.NewLMStudioClient(storage.NewSQLiteStorage())
+func getDB() storage.Interface {
+	return storage.NewSQLiteStorage()
+}
+
+func getModel(db storage.Interface) models.Interface {
+	return models.NewLMStudioClient(db, qwenModel, embeddingModelMini)
 }
