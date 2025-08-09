@@ -27,7 +27,7 @@ func NewDiscordClient() *DiscordClient {
 	token := os.Getenv("DISCORD_TOKEN")
 
 	if token == "" {
-		return nil
+		log.Fatal("DISCORD_TOKEN is not set")
 	}
 
 	session, _ := discordgo.New("Bot " + token)
@@ -75,10 +75,9 @@ func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 			},
 		},
 	}
+
 	c.runtime.AddTools(discordActions)
-
 	c.Open()
-
 }
 
 type discordParameters struct {

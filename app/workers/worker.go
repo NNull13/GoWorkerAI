@@ -23,6 +23,7 @@ type Base interface {
 	GetTask() *Task
 	GetFolder() string
 	GetLockFolder() bool
+	GetToolsPreset() string
 }
 
 type Task struct {
@@ -33,10 +34,11 @@ type Task struct {
 }
 
 type Worker struct {
-	Task       *Task
-	Rules      []string
-	LockFolder bool
-	Folder     string
+	Task        *Task
+	ToolsPreset string
+	Rules       []string
+	LockFolder  bool
+	Folder      string
 }
 
 func (w *Worker) SetTask(task *Task) {
@@ -63,6 +65,13 @@ func (w *Worker) GetLockFolder() bool {
 		return false
 	}
 	return w.LockFolder
+}
+
+func (w *Worker) GetToolsPreset() string {
+	if w == nil {
+		return ""
+	}
+	return w.ToolsPreset
 }
 
 func (w *Worker) TaskInformation() string {

@@ -18,7 +18,8 @@ func main() {
 	var wg sync.WaitGroup
 	for _, worker := range customWorkers {
 		wg.Add(1)
-		r := runtime.NewRuntime(worker, model, tools.WorkerTools, db, worker.GetTask() != nil)
+		toolsPreset := tools.NewToolkitFromPreset(worker.GetToolsPreset())
+		r := runtime.NewRuntime(worker, model, toolsPreset, db, worker.GetTask() != nil)
 		for _, client := range clients {
 			client.Subscribe(r)
 		}

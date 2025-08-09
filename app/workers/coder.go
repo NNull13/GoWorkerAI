@@ -15,7 +15,7 @@ type Coder struct {
 }
 
 func NewCoder(
-	language, task string,
+	language, task, toolPreset string,
 	codeStyles, acceptConditions, rules []string,
 	maxIterations int,
 	folder string,
@@ -29,9 +29,10 @@ func NewCoder(
 				AcceptConditions: acceptConditions,
 				MaxIterations:    maxIterations,
 			},
-			Rules:      rules,
-			LockFolder: lockFolder,
-			Folder:     folder,
+			ToolsPreset: toolPreset,
+			Rules:       rules,
+			LockFolder:  lockFolder,
+			Folder:      folder,
 		},
 		Language:   language,
 		CodeStyles: codeStyles,

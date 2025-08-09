@@ -14,7 +14,7 @@ import (
 )
 
 type Runtime struct {
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	worker     workers.Interface
 	model      models.Interface
 	toolkit    map[string]tools.Tool
@@ -60,10 +60,23 @@ func (r *Runtime) Start(ctx context.Context) {
 
 func (r *Runtime) AddTools(newActions []tools.Tool) {
 	r.mu.Lock()
+	if r.toolkit == nil {
+		r.toolkit = make(map[string]tools.Tool)
+	}
 	for _, newAction := range newActions {
 		r.toolkit[newAction.Name] = newAction
 	}
 	r.mu.Unlock()
+}
+
+func (r *Runtime) Toolkit() map[string]tools.Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	copy := make(map[string]tools.Tool, len(r.toolkit))
+	for k, v := range r.toolkit {
+		copy[k] = v
+	}
+	return copy
 }
 
 func (r *Runtime) QueueEvent(event Event) {
@@ -152,7 +165,7 @@ func (r *Runtime) executeStep(ctx context.Context, worker workers.Interface, tas
 		default:
 			log.Printf("▶️ Executing step %d (attempt %d): %s\n", stepIndex+1, attempt+1, step)
 			prompt := worker.PromptSegmentedStep(steps, stepIndex, currentSummary)
-			response, perr := r.model.Process(ctx, prompt, r.toolkit, taskID)
+			response, perr := r.model.Process(ctx, prompt, r.Toolkit(), taskID)
 			if perr != nil {
 				log.Printf("❌ Error processing step %d attempt %d: %v\n", stepIndex+1, attempt+1, perr)
 				continue

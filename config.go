@@ -24,6 +24,7 @@ var customWorkers = []workers.Interface{
 			"sub-tests where appropriate, ensure each file is formatted with go fmt, and do not introduce any compilation"+
 			" warnings. Process by 1 file per once, first list all, then each by each read file,"+
 			"write new file, read both and next",
+		"file_basic",
 		[]string{
 			"Use table-driven tests with well-defined structs for inputs and expected outputs.",
 			"Leverage sub-tests via t.Run for each scenario in your table-driven tests.",
@@ -48,7 +49,7 @@ var customWorkers = []workers.Interface{
 }
 
 func getClients() []clients.Interface {
-	return []clients.Interface{clients.NewDiscordClient()}
+	return nil //[]clients.Interface{clients.NewDiscordClient()}
 }
 
 func getDB() storage.Interface {

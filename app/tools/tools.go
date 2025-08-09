@@ -16,6 +16,17 @@ const (
 	extract_meta_tags    = "extract_meta_tags"
 )
 
+const (
+	PresetMinimal         string = "minimal"
+	PresetReadOnly        string = "readonly"
+	PresetFileOpsBasic    string = "file_basic"
+	PresetFileOpsExtended string = "file_extended"
+	PresetScraperBasic    string = "scraper_basic"
+	PresetScraperFull     string = "scraper_full"
+	PresetAll             string = "all"
+	Custom                string = "custom"
+)
+
 type Tool struct {
 	Name        string                         `json:"name"`
 	Description string                         `json:"description"`
@@ -34,7 +45,7 @@ type ToolTask struct {
 	Parameters map[string]any `json:"parameters"`
 }
 
-var WorkerTools = map[string]Tool{
+var allTools = map[string]Tool{
 	write_file: {
 		Name:        write_file,
 		Description: "Use this action to create a new file or overwrite existing content.",
@@ -156,31 +167,29 @@ var WorkerTools = map[string]Tool{
 		},
 		HandlerFunc: executeFileAction,
 	},
-	/*
-		search_file: {
-			Name:        search_file,
-			Description: "Use this action to search for a text pattern or regex in a file or directory. If it's a directory, optionally search recursively.",
-			Parameters: Parameter{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The file or directory path where to search.",
-					},
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "The pattern (plaintext or regex) to look for.",
-					},
-					"recursive": map[string]any{
-						"type":        "boolean",
-						"description": "Whether to search in subdirectories if path is a directory.",
-					},
+	search_file: {
+		Name:        search_file,
+		Description: "Use this action to search for a text pattern or regex in a file or directory. If it's a directory, optionally search recursively.",
+		Parameters: Parameter{
+			Type: "object",
+			Properties: map[string]any{
+				"path": map[string]any{
+					"type":        "string",
+					"description": "The file or directory path where to search.",
 				},
-				Required: []string{"path", "pattern"},
+				"pattern": map[string]any{
+					"type":        "string",
+					"description": "The pattern (plaintext or regex) to look for.",
+				},
+				"recursive": map[string]any{
+					"type":        "boolean",
+					"description": "Whether to search in subdirectories if path is a directory.",
+				},
 			},
-			HandlerFunc: executeFileAction,
+			Required: []string{"path", "pattern"},
 		},
-	*/
+		HandlerFunc: executeFileAction,
+	},
 	create_directory: {
 		Name:        create_directory,
 		Description: "Use this action to create a new directory (and parent directories if necessary) at the given path.",
@@ -196,8 +205,6 @@ var WorkerTools = map[string]Tool{
 		},
 		HandlerFunc: executeFileAction,
 	},
-
-	// Scrapping
 	fetch_html_content: {
 		Name:        fetch_html_content,
 		Description: "Fetches raw HTML content from the given URL. Optionally, save it into file_path if provided.",
@@ -274,4 +281,77 @@ var WorkerTools = map[string]Tool{
 		},
 		HandlerFunc: extractMetaTags,
 	},
+}
+
+func NewToolkitFromPreset(preset string) map[string]Tool {
+	switch preset {
+	case PresetMinimal:
+		return pick(
+			read_file,
+			list_files,
+		)
+	case PresetReadOnly:
+		return pick(
+			read_file,
+			list_files,
+			search_file,
+		)
+	case PresetFileOpsBasic:
+		return pick(
+			read_file,
+			write_file,
+			append_file,
+			create_directory,
+			list_files,
+		)
+	case PresetFileOpsExtended:
+		return pick(
+			read_file,
+			write_file,
+			append_file,
+			create_directory,
+			list_files,
+			copy_file,
+			move_file,
+			delete_file,
+			search_file,
+		)
+	case PresetScraperBasic:
+		return pick(
+			fetch_html_content,
+			extract_text_content,
+			extract_links_html,
+			extract_meta_tags,
+		)
+	case PresetScraperFull:
+		return pick(
+			fetch_html_content,
+			extract_text_content,
+			extract_links_html,
+			extract_meta_tags,
+			write_file,
+			create_directory,
+			list_files,
+		)
+	case Custom:
+		return make(map[string]Tool)
+	case PresetAll:
+		fallthrough
+	default:
+		keys := make([]string, 0, len(allTools))
+		for k := range allTools {
+			keys = append(keys, k)
+		}
+		return pick(keys...)
+	}
+}
+
+func pick(names ...string) map[string]Tool {
+	m := make(map[string]Tool, len(names))
+	for _, n := range names {
+		if t, ok := allTools[n]; ok {
+			m[n] = t
+		}
+	}
+	return m
 }

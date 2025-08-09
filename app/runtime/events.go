@@ -15,7 +15,6 @@ const (
 )
 
 type Event struct {
-	Context     string
 	Task        *workers.Task
 	HandlerFunc func(r *Runtime, ev Event) string
 }
