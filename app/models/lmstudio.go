@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -35,8 +36,12 @@ type LMStudioClient struct {
 }
 
 func NewLMStudioClient(db storage.Interface, model, embModel string) *LMStudioClient {
+	baseURL := os.Getenv("LLM_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:1234"
+	}
 	return &LMStudioClient{
-		restClient:      restclient.NewRestClient("http://localhost:1234", nil),
+		restClient:      restclient.NewRestClient(baseURL, nil),
 		storage:         db,
 		model:           model,
 		embeddingsModel: embModel,
@@ -138,14 +143,16 @@ func (mc *LMStudioClient) handleToolCalls(ctx context.Context, toolkit map[strin
 			result = err.Error()
 		}
 
-		mc.storage.SaveHistory(ctx, storage.Record{
+		if err := mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
 			Role:       "tool",
 			Tool:       tool.Name,
 			Content:    result,
 			Parameters: call.Function.Arguments,
 			CreatedAt:  time.Now(),
-		})
+		}); err != nil {
+			log.Printf("⚠️ Error saving history for tool %s: %v", tool.Name, err)
+		}
 
 		messages = append(messages,
 			Message{
