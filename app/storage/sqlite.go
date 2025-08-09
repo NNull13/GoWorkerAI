@@ -25,7 +25,7 @@ func getDBPath() string {
 			log.Fatalf("❌ Error getting project directory: %v", err)
 		}
 		defaultPath := filepath.Join(projectDir, "data", "database.db")
-		if err := os.MkdirAll(filepath.Dir(defaultPath), os.ModePerm); err != nil {
+		if err = os.MkdirAll(filepath.Dir(defaultPath), os.ModePerm); err != nil {
 			log.Fatalf("❌ Error creating data directory: %v", err)
 		}
 		log.Printf("📂 DB_PATH not set, using default: %s", defaultPath)

@@ -15,7 +15,7 @@ type Interface interface {
 	PromptPlan(taskInformation string) []models.Message
 	PromptNextAction(plan, resume string) []models.Message
 	PromptValidation(plan, summary string) []models.Message
-	PromptSegmentedStep(steps []string, index int, summary string) []models.Message
+	PromptSegmentedStep(steps []string, index int, summary, preamble string) []models.Message
 	TaskInformation() string
 }
 
@@ -25,6 +25,7 @@ type Base interface {
 	GetFolder() string
 	GetLockFolder() bool
 	GetToolsPreset() string
+	GetPreamble() string
 }
 
 type Task struct {
@@ -108,12 +109,23 @@ func (w *Worker) buildWorkerInfo() workerInfo {
 	return info
 }
 
+func (w *Worker) GetPreamble() string {
+	var sb strings.Builder
+	sb.WriteString(strings.Join([]string{
+		"You are the best assistant for any task. All tasks are important.",
+		"Goals:",
+		"- Complete the task as quickly as possible.",
+		"- Complete the task without errors.",
+		"- Complete the task without breaking any rules.",
+	}, "\n"))
+	return sb.String()
+}
+
 func (w *Worker) TaskInformation() string {
 	taskInformation, _ := json.Marshal(w.buildWorkerInfo())
 	return string(taskInformation)
 }
 
-// planSystemPrompt builds the strict planning system prompt used by all workers.
 func planSystemPrompt(preamble string) string {
 	var rules []string
 	rules = append(rules,
@@ -176,15 +188,27 @@ func (w *Worker) PromptNextAction(plan, resume string) []models.Message {
 
 func (w *Worker) PromptValidation(plan, summary string) []models.Message {
 	sys := strings.Join([]string{
-		"You are a meticulous validator.",
-		"Decide if the plan has been executed COMPLETELY and CORRECTLY based on the execution summary.",
-		"ALL criteria must be satisfied:",
-		"- Every step in the plan is covered with no omissions.",
-		"- Execution respects logical order or provides equivalent justified progression.",
-		"- No pending tasks, TODOs, errors, blockers, or implied future work remain.",
-		"- Key outputs/artifacts are indicated as completed.",
-		"OUTPUT FORMAT: respond with EXACTLY `true` or `false` in lowercase. No extra text.",
+		"You are a meticulous yet practical validator.",
+		"Goal: Decide if more work is REQUIRED to finish the task, based on the execution summary and the plan.",
+		"Important:",
+		"- Answer `true` if further work is needed (incomplete, unclear, or incorrect).",
+		"- Answer `false` if the task is sufficiently complete and correct.",
+		"Use LIMITED, CRITICAL JUDGMENT:",
+		"- You may make minor, reasonable assumptions only when strongly implied by the summary.",
+		"- Treat such links as ASSUMED and be conservative: if the assumption touches a critical output/correctness criterion, prefer `true`.",
+		"- Do NOT invent artifacts, IDs, results, or success states that are not implied.",
+		"Pass criteria (all must be satisfied or safely assumed without touching critical outputs):",
+		"- Each plan step is addressed with an explicit or strongly implied result.",
+		"- Logical order respected or equivalently justified.",
+		"- No critical TODOs, UNKNOWNs, blockers, or unresolved retries.",
+		"- Key outputs/artifacts exist with enough detail to be verifiable (IDs/URLs/files/status/counters).",
+		"- No contradictions.",
+		"Decision policy:",
+		"- If any critical gap, ambiguity, or error remains → `true` (more work needed).",
+		"- If all critical criteria are clearly met and only non-critical details are missing → `false`.",
+		"- When uncertain about critical completeness → `true`.",
 	}, "\n")
+
 	user := fmt.Sprintf(
 		"Plan:\n%s\n\nExecution Summary:\n%s\n\nHas the plan been fully and correctly executed?",
 		plan, summary,
@@ -195,41 +219,30 @@ func (w *Worker) PromptValidation(plan, summary string) []models.Message {
 	}
 }
 
-func (w *Worker) PromptSegmentedStep(steps []string, index int, summary string) []models.Message {
+func (w *Worker) PromptSegmentedStep(steps []string, index int, summary, preamble string) []models.Message {
 	if index < 0 || index >= len(steps) {
-		systemMsg := models.Message{
-			Role:    "system",
-			Content: "Step index out of range. Respond with `DONE`.",
-		}
-		userMsg := models.Message{Role: "user", Content: "DONE"}
-		return []models.Message{systemMsg, userMsg}
+		return nil
 	}
+
+	stepText := steps[index]
+	total := len(steps)
 
 	var sb strings.Builder
-	sb.WriteString("You are executing a segmented plan.\n")
-	sb.WriteString("FULL PLAN (numbered list):\n")
-	for i, step := range steps {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, step))
-	}
-	sb.WriteString("\nFOCUS STEP:\n")
-	sb.WriteString(fmt.Sprintf("%d. %s\n", index+1, steps[index]))
+
+	sb.WriteString(fmt.Sprintf("FOCUS TASK (%d/%d):\n", index, total))
+	sb.WriteString(stepText + "\n")
+
+	sb.WriteString(preamble + "\n")
 
 	if summary == "" {
-		sb.WriteString("\nCurrent Execution Summary: (not available)\n")
+		sb.WriteString("\nCURRENT EXECUTION SUMMARY: not started\n")
 	} else {
-		sb.WriteString("\nCurrent Execution Summary:\n" + summary + "\n")
+		sb.WriteString("\nCURRENT EXECUTION SUMMARY:\n")
+		sb.WriteString(summary)
+		sb.WriteString("\n")
 	}
 
-	sb.WriteString(strings.Join([]string{
-		"\nGOAL:",
-		"- If the focus step is already complete per the summary: respond `DONE`.",
-		"- Otherwise: return the single next minimal action to advance this step.",
-		"REQUIRED OUTPUT (exactly one line):",
-		"- `ACTION: <imperative command, <= 25 words>` or `DONE`.",
-		"- No explanations, no additional lines.",
-	}, "\n"))
-
 	systemMsg := models.Message{Role: "system", Content: sb.String()}
-	userMsg := models.Message{Role: "user", Content: "Return the output in the required format."}
+	userMsg := models.Message{Role: "user", Content: steps[index]}
 	return []models.Message{systemMsg, userMsg}
 }

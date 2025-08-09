@@ -57,10 +57,9 @@ func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64
 func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
 	sys := Message{
 		Role: "system",
-		Content: `You must make a binary decision by calling exactly ONE tool:
-- "approve_plan"  (when the answer is YES / TRUE)
-- "reject_plan"   (when the answer is NO / FALSE)
-Do not write any text. Do not return JSON. Only call one tool.`,
+		Content: `You must make a binary decision by calling just ONE tool:
+		- "approve_plan"  (when the answer is TRUE)
+		- "reject_plan"   (when the answer is FASLE)`,
 	}
 
 	msgs := make([]Message, 0, len(messages)+1) // +1 for system message
@@ -110,6 +109,7 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Reco
 	- Output ONLY a numbered list of entries.
 	- Start at 1 and increment by 1.
 	- Exactly one line per entry. No text before, between, or after entries.
+        - Write each entry as an explicit, past-tense execution statement (what was DONE), not an instruction.
 	- Required Output Format is:
 	"1. [Description of the first entry]\n2. [Description of the next entry]\n...\nN. [Final entry]\n".`
 
@@ -124,7 +124,7 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Reco
 		{Role: "user", Content: content},
 	}
 
-	response, err := mc.generateResponse(ctx, messages, nil, 0.1, 500)
+	response, err := mc.generateResponse(ctx, messages, nil, 0.25, -1)
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +143,8 @@ func (mc *LLMClient) Process(ctx context.Context, messages []Message, toolkit ma
 
 	message := response.Choices[0].Message
 	for i := 0; i < 5; i++ {
-		messages = append(messages, mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID, stepID)...)
+		newMessages := mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID, stepID)
+		messages = append(messages, newMessages...)
 		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
 			return "", err
 		}

@@ -221,7 +221,7 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 		step := sc.Plan[sc.Index]
 		log.Printf("▶️ Executing step %d (attempt %d): %s\n", sc.Index+1, attempt, step)
 
-		prompt := worker.PromptSegmentedStep(sc.Plan, sc.Index, summary)
+		prompt := worker.PromptSegmentedStep(sc.Plan, sc.Index, summary, worker.GetPreamble())
 
 		resp, err := r.model.Process(ctx, prompt, toolkit, sc.TaskID, sc.Index)
 		if err != nil {

@@ -69,7 +69,7 @@ func (c *Coder) TaskInformation() string {
 
 // ------- Shared coder preamble (consistent behavior across prompts)
 
-func (c *Coder) coderPreamble() string {
+func (c *Coder) GetPreamble() string {
 	var sb strings.Builder
 	sb.WriteString(strings.Join([]string{
 		"You are an expert software engineer and careful editor.",
@@ -87,7 +87,7 @@ func (c *Coder) coderPreamble() string {
 }
 
 func (c *Coder) PromptPlan(taskInformation string) []models.Message {
-	sys := planSystemPrompt(c.coderPreamble())
+	sys := planSystemPrompt(c.GetPreamble())
 	user := strings.Join([]string{
 		taskInformation,
 		"Generate a precise, step-by-step technical development plan, strictly following the format rules.",
