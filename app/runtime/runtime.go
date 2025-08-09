@@ -113,7 +113,7 @@ func (r *Runtime) runTask(ctx context.Context) {
 
 	log.Printf("▶️ Starting task: %s\n", task.Task)
 	taskInfo := currentWorker.TaskInformation()
-	plan, err := r.model.Think(ctx, currentWorker.PromptPlan(taskInfo), 0.33, -1)
+	plan, err := r.model.Think(ctx, currentWorker.PromptPlan(taskInfo), 0.25, -1)
 	if err != nil {
 		log.Printf("❌ Error generating initial plan: %v\n", err)
 		return

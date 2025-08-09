@@ -1,11 +1,12 @@
 package workers
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 
-	"GoWorkerAI/app/models"
 	"github.com/google/uuid"
+
+	"GoWorkerAI/app/models"
 )
 
 type Coder struct {
@@ -13,6 +14,13 @@ type Coder struct {
 	Language   string
 	CodeStyles []string
 	Tests      bool
+}
+
+type coderInfo struct {
+	workerInfo
+	Language   string   `json:"language,omitempty"`
+	CodeStyles []string `json:"code_styles,omitempty"`
+	Tests      bool     `json:"tests,omitempty"`
 }
 
 func NewCoder(
@@ -41,30 +49,22 @@ func NewCoder(
 	}
 }
 
-// ------- Improved TaskInformation (more context, still compact)
+func (c *Coder) buildCoderInfo() coderInfo {
+	if c == nil {
+		return coderInfo{}
+	}
+	base := c.buildWorkerInfo()
+	return coderInfo{
+		workerInfo: base,
+		Language:   c.Language,
+		CodeStyles: append([]string(nil), c.CodeStyles...),
+		Tests:      c.Tests,
+	}
+}
 
 func (c *Coder) TaskInformation() string {
-	baseInfo := c.Worker.TaskInformation()
-	var sb strings.Builder
-	sb.WriteString(baseInfo)
-	sb.WriteString(fmt.Sprintf("Programming Language: %s\n", c.Language))
-	if len(c.CodeStyles) > 0 {
-		sb.WriteString(fmt.Sprintf("Code Styles: %s\n", strings.Join(c.CodeStyles, ", ")))
-	}
-	sb.WriteString(fmt.Sprintf("Testing Required: %t\n", c.Tests))
-
-	// Extra helpful context for coding tasks
-	if c.ToolsPreset != "" {
-		sb.WriteString(fmt.Sprintf("Tools Preset: %s\n", c.ToolsPreset))
-	}
-	if len(c.Rules) > 0 {
-		sb.WriteString(fmt.Sprintf("Rules: %s\n", strings.Join(c.Rules, " | ")))
-	}
-	if c.Folder != "" {
-		sb.WriteString(fmt.Sprintf("Working Folder: %s\n", c.Folder))
-	}
-	sb.WriteString(fmt.Sprintf("Lock Folder: %t\n", c.LockFolder))
-	return sb.String()
+	taskInformation, _ := json.Marshal(c.buildCoderInfo())
+	return string(taskInformation)
 }
 
 // ------- Shared coder preamble (consistent behavior across prompts)

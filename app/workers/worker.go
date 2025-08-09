@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -41,6 +42,17 @@ type Worker struct {
 	Folder      string
 }
 
+type workerInfo struct {
+	ID               string   `json:"id,omitempty"`
+	MainTask         string   `json:"main_task,omitempty"`
+	AcceptConditions []string `json:"accept_conditions,omitempty"`
+	MaxIterations    int      `json:"max_iterations,omitempty"`
+	ToolsPreset      string   `json:"tools_preset,omitempty"`
+	Rules            []string `json:"rules,omitempty"`
+	Folder           string   `json:"folder,omitempty"`
+	LockFolder       bool     `json:"lock_folder,omitempty"`
+}
+
 func (w *Worker) SetTask(task *Task) {
 	task.ID = uuid.New()
 	w.Task = task
@@ -74,25 +86,41 @@ func (w *Worker) GetToolsPreset() string {
 	return w.ToolsPreset
 }
 
-func (w *Worker) TaskInformation() string {
-	var sb strings.Builder
-	sb.WriteString("Task Information:\n")
-	sb.WriteString(fmt.Sprintf("Main Task: %s\n", w.Task.Task))
-	if len(w.Task.AcceptConditions) > 0 {
-		sb.WriteString(fmt.Sprintf("Accepted Conditions: %s\n", strings.Join(w.Task.AcceptConditions, ", ")))
+func (w *Worker) buildWorkerInfo() workerInfo {
+	if w == nil {
+		return workerInfo{}
 	}
-	return sb.String()
+	info := workerInfo{
+		ToolsPreset: w.ToolsPreset,
+		Rules:       append([]string(nil), w.Rules...),
+		Folder:      w.Folder,
+		LockFolder:  w.LockFolder,
+	}
+	if w.Task != nil {
+		info.ID = w.Task.ID.String()
+		info.MainTask = w.Task.Task
+		info.AcceptConditions = append([]string(nil), w.Task.AcceptConditions...)
+		info.MaxIterations = w.Task.MaxIterations
+	}
+	return info
+}
+
+func (w *Worker) TaskInformation() string {
+	taskInformation, _ := json.Marshal(w.buildWorkerInfo())
+	return string(taskInformation)
 }
 
 // planSystemPrompt builds the strict planning system prompt used by all workers.
 func planSystemPrompt(preamble string) string {
 	var rules []string
 	rules = append(rules,
+		"You are an expert strategic planner. Your role is to create a highly detailed, ",
+		"step-by-step plan for the task described below. The plan MUST adhere to the format exactly as specified.",
 		"HARD FORMAT RULES:",
 		"- Output ONLY a numbered list of steps.",
-		"- Each step MUST be exactly: `N. [imperative verb, brief actionable description]`.",
+		"- Required Output Format is:",
+		"`1. [Description of the first step]\n2. [Description of the next step]\n...\nN. [Final step]\n`.",
 		"- Start at 1 and increment by 1.",
-		"- The description MUST be inside `[]` with no nested brackets.",
 		"- Exactly one line per step. No text before, between, or after steps.",
 	)
 
@@ -114,7 +142,7 @@ func planSystemPrompt(preamble string) string {
 }
 
 func (w *Worker) PromptPlan(taskInformation string) []models.Message {
-	sys := planSystemPrompt()
+	sys := planSystemPrompt("") // no preamble
 	user := strings.Join([]string{
 		taskInformation,
 		"Generate the plan, strictly following the format rules.",
