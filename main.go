@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"sync"
@@ -23,7 +24,7 @@ func main() {
 		}
 		go func() {
 			defer wg.Done()
-			r.Start()
+			r.Start(context.Background())
 		}()
 	}
 	log.Println("All runtimes started. Waiting for clients indefinitely...")

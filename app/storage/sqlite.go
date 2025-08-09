@@ -43,15 +43,14 @@ func NewSQLiteStorage() *SQLiteContextStorage {
 
 	_, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS records (
-            id INTEGER NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id TEXT NOT NULL,
             step_id INTEGER,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             tool TEXT NULL,
             parameters TEXT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (task_id, id)
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_task_id ON records (task_id);
     `)
@@ -63,24 +62,29 @@ func NewSQLiteStorage() *SQLiteContextStorage {
 }
 
 func (s *SQLiteContextStorage) SaveHistory(ctx context.Context, record Record) error {
-	var lastID int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(id), 0) FROM records WHERE task_id = ?`, record.TaskID,
-	).Scan(&lastID)
-	if err != nil && err != sql.ErrNoRows {
-		log.Printf("⚠️ Error retrieving last ID for task %s: %v", record.TaskID, err)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	record.ID = lastID + 1
-
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO records (id, task_id, step_id, role, content, tool, parameters, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, datetime(?))`,
-		record.ID, record.TaskID, record.StepID, record.Role, record.Content, record.Tool, record.Parameters, record.CreatedAt.Format("2006-01-02 15:04:05"),
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO records (task_id, step_id, role, content, tool, parameters, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, datetime(?))`,
+		record.TaskID, record.StepID, record.Role, record.Content, record.Tool, record.Parameters, record.CreatedAt.Format("2006-01-02 15:04:05"),
 	)
 	if err != nil {
 		log.Printf("⚠️ Error saving record for task %s: %v", record.TaskID, err)
+		return err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	record.ID = id
+
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 	log.Printf("✅ Record saved: %+v", record)

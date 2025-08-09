@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"GoWorkerAI/app/clients"
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
@@ -54,5 +56,13 @@ func getDB() storage.Interface {
 }
 
 func getModel(db storage.Interface) models.Interface {
-	return models.NewLMStudioClient(db, gptModel, embeddingModel)
+	model := os.Getenv("LLM_MODEL")
+	if model == "" {
+		model = gptModel
+	}
+	embModel := os.Getenv("LLM_EMBEDDINGS_MODEL")
+	if embModel == "" {
+		embModel = embeddingModel
+	}
+	return models.NewLMStudioClient(db, model, embModel)
 }

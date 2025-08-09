@@ -5,7 +5,6 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
-	"time"
 
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
@@ -37,21 +36,24 @@ func NewRuntime(worker workers.Interface, model models.Interface, initialActions
 	}
 }
 
-func (r *Runtime) Start() {
+func (r *Runtime) Start(ctx context.Context) {
 	r.mu.Lock()
 	if r.activeTask {
-		ctx, cancel := context.WithCancel(context.Background())
+		cctx, cancel := context.WithCancel(ctx)
 		r.cancelFunc = cancel
-		go r.runTask(ctx)
+		go r.runTask(cctx)
 	}
 	r.mu.Unlock()
 
 	for {
 		select {
-		case ev := <-r.events:
+		case <-ctx.Done():
+			return
+		case ev, ok := <-r.events:
+			if !ok {
+				return
+			}
 			r.handleEvent(ev)
-		default:
-			time.Sleep(1 * time.Second)
 		}
 	}
 }

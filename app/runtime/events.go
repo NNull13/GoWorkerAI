@@ -20,9 +20,13 @@ type Event struct {
 	HandlerFunc func(r *Runtime, ev Event) string
 }
 
-func (r *Runtime) SaveEventOnHistory(content string) {
-	r.db.SaveHistory(context.Background(), storage.Record{
-		TaskID:    r.worker.GetTask().ID.String(),
+func (r *Runtime) SaveEventOnHistory(ctx context.Context, content string) error {
+	task := r.worker.GetTask()
+	if task == nil {
+		return nil
+	}
+	return r.db.SaveHistory(ctx, storage.Record{
+		TaskID:    task.ID.String(),
 		StepID:    0,
 		Role:      "event",
 		Content:   content,
@@ -31,13 +35,13 @@ func (r *Runtime) SaveEventOnHistory(content string) {
 }
 
 func (r *Runtime) handleEvent(ev Event) {
-	r.mu.Lock()
-	log.Printf("🆕 New Event received: %s Task: %v\n", ev.HandlerFunc(r, ev), ev.Task)
-	r.mu.Unlock()
+	msg := ev.HandlerFunc(r, ev)
+	log.Printf("🆕 New Event received: %s Task: %v\n", msg, ev.Task)
 }
 
 var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 	NewTask: func(r *Runtime, ev Event) string {
+		r.mu.Lock()
 		r.worker.SetTask(ev.Task)
 		if r.cancelFunc != nil {
 			log.Println("🛑 Canceling current task before starting a new one.")
@@ -46,10 +50,12 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancelFunc = cancel
 		r.activeTask = true
+		r.mu.Unlock()
 		go r.runTask(ctx)
 		return NewTask
 	},
 	CancelTask: func(r *Runtime, ev Event) string {
+		r.mu.Lock()
 		if r.activeTask {
 			log.Println("🛑 Canceling active task.")
 			r.activeTask = false
@@ -60,6 +66,7 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 		} else {
 			log.Println("⚠️ No active task to cancel.")
 		}
+		r.mu.Unlock()
 		return CancelTask
 	},
 }

@@ -1,6 +1,7 @@
 package clients
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -104,7 +105,9 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 	if m.Author.ID != os.Getenv("DISCORD_ADMIN") {
 		return
 	}
-	c.runtime.SaveEventOnHistory(m.Content)
+	if err := c.runtime.SaveEventOnHistory(context.Background(), m.Content); err != nil {
+		log.Printf("⚠️ Error saving event: %v", err)
+	}
 	if strings.HasPrefix(m.Content, "!task") {
 		parts := strings.Fields(m.Content)
 		if len(parts) < 2 {
