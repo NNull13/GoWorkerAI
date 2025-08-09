@@ -54,8 +54,11 @@ type workerInfo struct {
 }
 
 func (w *Worker) SetTask(task *Task) {
-	task.ID = uuid.New()
 	w.Task = task
+	if w == nil {
+		return
+	}
+	task.ID = uuid.New()
 }
 
 func (w *Worker) GetTask() *Task {

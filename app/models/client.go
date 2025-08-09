@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -56,30 +55,46 @@ func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64
 }
 
 func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
-	// agrega instrucción fuerte al final del prompt del usuario
-	msgs := append([]Message{}, Message{
-		Role:    "system",
-		Content: "Return ONLY a JSON object like: {\"answer\": true} or {\"answer\": false}. No extra text.",
-	})
-	msgs = append(msgs, messages...)
+	sys := Message{
+		Role: "system",
+		Content: `You must make a binary decision by calling exactly ONE tool:
+- "approve_plan"  (when the answer is YES / TRUE)
+- "reject_plan"   (when the answer is NO / FALSE)
+Do not write any text. Do not return JSON. Only call one tool.`,
+	}
 
-	for i := 0; i < 3; i++ {
-		response, err := mc.generateResponse(ctx, msgs, nil, 0.1, 25)
+	msgs := make([]Message, 0, len(messages)+1) // +1 for system message
+	msgs = append(msgs, sys)
+	msgs = append(msgs, messages...)
+	toolsPreset := tools.NewToolkitFromPreset(tools.PresetPlanReviewer)
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.0, -1)
 		if err != nil {
 			return false, err
 		}
+		if resp == nil || len(resp.Choices) == 0 {
+			continue
+		}
 
-		lt := strings.ToLower(strings.TrimSpace(response.Choices[0].Message.Content))
-		switch {
-		case strings.Contains(lt, "true"), strings.Contains(lt, "yes"):
+		msg := resp.Choices[0].Message
+		if len(msg.ToolCalls) == 0 {
+			log.Printf("YesOrNo attempt %d: model returned no tool call, content=%q", attempt, msg.Content)
+			continue
+		}
+
+		name := msg.ToolCalls[0].Function.Name
+		switch name {
+		case "approve_plan":
 			return true, nil
-		case strings.Contains(lt, "false"), strings.Contains(lt, "no"):
+		case "reject_plan":
 			return false, nil
 		default:
-			log.Printf("🤔 Unexpected answer: %s", response.Choices[0].Message.Content)
+			log.Printf("🤔 Unexpected answer: %+v", msg)
 		}
+
 	}
-	return false, fmt.Errorf("unexpected yes/no")
+
+	return false, fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
 func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Record) (string, error) {
@@ -87,18 +102,21 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Reco
 		return "Task not started yet, incomplete", nil
 	}
 
-	systemPrompt := `You are an AI responsible for summarizing task execution histories. 
-	Generate a structured summary that includes:
-	- A high-level overview of the task.
-	- The key actions performed in sequence.
-	- Any errors or issues encountered.
-	- The tools used and their results.
-	- The current state of progress and what remains to be done.
-	Ensure that the summary is concise, coherent, and useful for future iterations.`
+	systemPrompt := `You will receive a flat history of task execution entries in this form (one per line):
+	Role: <role> | Content: <text> | Tool: <tool-or-empty> | Step: <integer> | ID: <integer>
+	Your job: produce a compact, high-signal, strictly chronological timeline of the execution, enabling a separate 
+	evaluator to decide YES/NO readiness using this timeline if the task is complete
+	Rules for summary:
+	- Output ONLY a numbered list of entries.
+	- Start at 1 and increment by 1.
+	- Exactly one line per entry. No text before, between, or after entries.
+	- Required Output Format is:
+	"1. [Description of the first entry]\n2. [Description of the next entry]\n...\nN. [Final entry]\n".`
 
 	content := "Here is the history of task execution. Summarize it:"
 	for _, entry := range history {
-		content += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | Step: %d", entry.Role, entry.Content, entry.Tool, entry.StepID)
+		content += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | Step: %d | ID: %d",
+			entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
 	}
 
 	messages := []Message{
@@ -135,6 +153,16 @@ func (mc *LLMClient) Process(ctx context.Context, messages []Message, toolkit ma
 		}
 	}
 
+	if err = mc.storage.SaveHistory(ctx, storage.Record{
+		TaskID:    taskID,
+		StepID:    int64(stepID),
+		Role:      "assistant",
+		Content:   message.Content,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		log.Printf("⚠️ Error saving history for task %s: %v", taskID, err)
+	}
+
 	return message.Content, nil
 }
 
@@ -158,7 +186,7 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, toolkit map[string]too
 			result = err.Error()
 		}
 
-		if err := mc.storage.SaveHistory(ctx, storage.Record{
+		if err = mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
 			StepID:     int64(stepID),
 			Role:       "tool",
@@ -225,7 +253,7 @@ func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPay
 			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
 			if err != nil {
 				log.Printf("⚠️ Attempt %d failed: HTTP %d | Response: %s | Error: %v | Payload %v",
-					i+1, status, string(response), err, payload)
+					i, status, string(response), err, payload)
 				continue
 			}
 

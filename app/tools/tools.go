@@ -1,6 +1,8 @@
 package tools
 
 const (
+	approve_plan         = "approve_plan"
+	reject_plan          = "reject_plan"
 	write_file           = "write_file"
 	read_file            = "read_file"
 	delete_file          = "delete_file"
@@ -17,6 +19,7 @@ const (
 )
 
 const (
+	PresetPlanReviewer    string = "plan_reviewer"
 	PresetMinimal         string = "minimal"
 	PresetReadOnly        string = "readonly"
 	PresetFileOpsBasic    string = "file_basic"
@@ -46,6 +49,34 @@ type ToolTask struct {
 }
 
 var allTools = map[string]Tool{
+	approve_plan: {
+		Name:        approve_plan,
+		Description: "Approve the proposed plan/step.",
+		Parameters: Parameter{
+			Type: "object",
+			Properties: map[string]any{
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "Brief reason for approving the plan/step.",
+				},
+			},
+			Required: []string{"reason"},
+		},
+	},
+	reject_plan: {
+		Name:        reject_plan,
+		Description: "Reject the proposed plan/step.",
+		Parameters: Parameter{
+			Type: "object",
+			Properties: map[string]any{
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "Brief reason for rejecting the plan/step.",
+				},
+			},
+			Required: []string{"reason"},
+		},
+	},
 	write_file: {
 		Name:        write_file,
 		Description: "Use this action to create a new file or overwrite existing content.",
@@ -285,6 +316,11 @@ var allTools = map[string]Tool{
 
 func NewToolkitFromPreset(preset string) map[string]Tool {
 	switch preset {
+	case PresetPlanReviewer:
+		return pick(
+			approve_plan,
+			reject_plan,
+		)
 	case PresetMinimal:
 		return pick(
 			read_file,

@@ -20,7 +20,7 @@ var customWorkers = []workers.Interface{
 		"Go",
 		"You are a Go engineer. Your mission is to create a brand-new workspace **in a new folder** and work **only inside it**.\n\n"+
 			"Steps:\n"+
-			"1) Create a unique subfolder `seed_<yyyy-mm-dd_hhmmss>` in the current directory and operate ONLY there.\n"+
+			"1) Create a unique subfolder `seed_<yyyy-mm_dd_hh_mm>` in the current directory and operate ONLY there.\n"+
 			"2) Initialize a minimal Go module (e.g., `module example.com/seed`).\n"+
 			"3) Create a small package (e.g., `calc`) with 1–2 public functions (e.g., Add, Avg) and documentation comments.\n"+
 			"4) Write table-driven tests in `_test.go` covering normal, edge, and error paths.\n"+
