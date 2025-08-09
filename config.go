@@ -8,13 +8,8 @@ import (
 )
 
 const (
-	qwenModel          = "qwen2.5-7b-instruct-1m"
-	qwenCoderModel     = "qwen2.5-coder-7b-instruct"
-	mistralModel       = "mistral-nemo-instruct-2407"
-	deepSeekModel      = "deepseek-r1-distill-qwen-7b"
-	yiModel            = "yi-coder-9b-chat"
-	embeddingModel     = "text-embedding-nomic-embed-text-v1.5-embedding"
-	embeddingModelMini = "text-embedding-all-minilm-l6-v2-embedding"
+	gptModel       = "openai/gpt-oss-20b"
+	embeddingModel = "text-embedding-nomic-embed-text-v1.5@q8_0"
 	//  ...
 )
 
@@ -59,5 +54,5 @@ func getDB() storage.Interface {
 }
 
 func getModel(db storage.Interface) models.Interface {
-	return models.NewLMStudioClient(db, qwenModel, embeddingModelMini)
+	return models.NewLMStudioClient(db, gptModel, embeddingModel)
 }
