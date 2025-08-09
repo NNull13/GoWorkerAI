@@ -72,7 +72,7 @@ func (c *Coder) TaskInformation() string {
 func (c *Coder) coderPreamble() string {
 	var sb strings.Builder
 	sb.WriteString(strings.Join([]string{
-		"You are a senior software engineer and careful editor.",
+		"You are an expert software engineer and careful editor.",
 		"Goals:",
 		"- Write correct, minimal, maintainable code that compiles and runs.",
 		"- Prefer small, idempotent changes with clear file operations.",

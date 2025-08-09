@@ -21,11 +21,13 @@ type Event struct {
 
 func (r *Runtime) SaveEventOnHistory(ctx context.Context, content string) error {
 	task := r.worker.GetTask()
-	if task == nil {
-		return nil
+
+	var taskID string
+	if task != nil {
+		taskID = task.ID.String()
 	}
 	return r.db.SaveHistory(ctx, storage.Record{
-		TaskID:    task.ID.String(),
+		TaskID:    taskID,
 		StepID:    0,
 		Role:      "event",
 		Content:   content,
@@ -40,32 +42,53 @@ func (r *Runtime) handleEvent(ev Event) {
 
 var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 	NewTask: func(r *Runtime, ev Event) string {
-		r.mu.Lock()
-		r.worker.SetTask(ev.Task)
-		if r.cancelFunc != nil {
-			log.Println("🛑 Canceling current task before starting a new one.")
-			r.cancelFunc()
+		if ev.Task == nil {
+			log.Println("⚠️ NewTask called with nil task.")
+			return NewTask
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		r.cancelFunc = cancel
-		r.activeTask = true
+
+		r.mu.Lock()
+		worker := r.worker
+		prevCancel := r.cancelFunc
 		r.mu.Unlock()
-		go r.runTask(ctx)
+
+		if prevCancel != nil {
+			log.Println("🛑 Canceling current task before starting a new one.")
+			prevCancel()
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		r.mu.Lock()
+		r.cancelFunc = cancel
+		if worker != nil {
+			worker.SetTask(ev.Task)
+		} else {
+			log.Println("⚠️ No worker configured; task will not run.")
+		}
+		r.activeTask.Store(true)
+		r.mu.Unlock()
+
+		go func() {
+			if err := r.runTask(ctx); err != nil {
+				log.Printf("Error running task: %v", err)
+			}
+		}()
+
 		return NewTask
 	},
+
 	CancelTask: func(r *Runtime, ev Event) string {
-		r.mu.Lock()
-		if r.activeTask {
-			log.Println("🛑 Canceling active task.")
-			r.activeTask = false
-			r.worker.SetTask(nil)
-			if r.cancelFunc != nil {
-				r.cancelFunc()
-			}
-		} else {
+		if !r.activeTask.CompareAndSwap(true, false) {
 			log.Println("⚠️ No active task to cancel.")
+			return CancelTask
 		}
+
+		r.mu.Lock()
+		r.StopRuntime()
 		r.mu.Unlock()
+
+		log.Println("🛑 Canceling active task.")
 		return CancelTask
 	},
 }
