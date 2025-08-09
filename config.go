@@ -18,28 +18,33 @@ const (
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Go",
-		"You are an expert in Go unit testing. Your mission is to read each file and make the tests that cover all"+
-			" public functions and relevant behaviors in this directory without modifying any existing logic files. "+
-			"Use Go's native testing library and avoid unnecessary external frameworks. Leverage table-driven tests and "+
-			"sub-tests where appropriate, ensure each file is formatted with go fmt, and do not introduce any compilation"+
-			" warnings. Process by 1 file per once, first list all, then each by each read file,"+
-			"write new file, read both and next",
-		"file_basic",
+		"You are a Go engineer. Your mission is to create a brand-new workspace **in a new folder** and work **only inside it**.\n\n"+
+			"Steps:\n"+
+			"1) Create a unique subfolder `seed_<yyyy-mm-dd_hhmmss>` in the current directory and operate ONLY there.\n"+
+			"2) Initialize a minimal Go module (e.g., `module example.com/seed`).\n"+
+			"3) Create a small package (e.g., `calc`) with 1–2 public functions (e.g., Add, Avg) and documentation comments.\n"+
+			"4) Write table-driven tests in `_test.go` covering normal, edge, and error paths.\n"+
+			"5) Run formatting and basic checks (`go fmt ./...` conceptually; ensure files are formatted). Do not introduce dependencies.\n"+
+			"6) List the resulting files and summarize what was created.\n\n"+
+			"Constraints:\n"+
+			"- Never modify files outside the seed folder.\n"+
+			"- Never overwrite existing tests; only create new ones if not present.\n"+
+			"- Keep the code compilable and idiomatic Go.\n",
+		"file_basic", // toolPreset
 		[]string{
-			"Use table-driven tests with well-defined structs for inputs and expected outputs.",
-			"Leverage sub-tests via t.Run for each scenario in your table-driven tests.",
-			"Optionally use testify (assert/require) if already permitted or present in the project, but don't introduce new dependencies without necessity.",
-			"Include descriptive test case names and clear error messages.",
+			"Use table-driven tests with clear case names.",
+			"Use `t.Run` subtests per scenario.",
+			"Prefer pure stdlib; no external deps.",
+			"Ensure package-level doc comments for exported symbols.",
 		},
 		[]string{
-			"Do not overwrite or modify existing tests.",
-			"Generate new `_test.go` files for each set of public functions or methods that need coverage.",
-			"Each test must use the signature `func TestXxx(t *testing.T)` and provide clear error messages.",
-			"Avoid external dependencies unless strictly necessary.",
+			"Do not touch files outside the new seed folder.",
+			"Do not modify existing non-test logic files if any are present.",
+			"Do not add external dependencies.",
 		},
 		[]string{
-			"Follow Go style guidelines and apply go fmt before finishing.",
-			"Use sub-tests (t.Run) and table-driven tests to organize your tests.",
+			"Apply go fmt style before finishing.",
+			"Keep functions small and testable.",
 		},
 		5,
 		"",
