@@ -2,14 +2,13 @@ package models
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,9 +24,9 @@ const (
 	embeddingEndpoint = "/v1/embeddings"
 )
 
-var _ Interface = &LMStudioClient{}
+var _ Interface = &LLMClient{}
 
-type LMStudioClient struct {
+type LLMClient struct {
 	restClient      *restclient.RestClient
 	storage         storage.Interface
 	cache           sync.Map
@@ -35,12 +34,12 @@ type LMStudioClient struct {
 	embeddingsModel string
 }
 
-func NewLMStudioClient(db storage.Interface, model, embModel string) *LMStudioClient {
+func NewLLMClient(db storage.Interface, model, embModel string) *LLMClient {
 	baseURL := os.Getenv("LLM_BASE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:1234"
 	}
-	return &LMStudioClient{
+	return &LLMClient{
 		restClient:      restclient.NewRestClient(baseURL, nil),
 		storage:         db,
 		model:           model,
@@ -48,7 +47,7 @@ func NewLMStudioClient(db storage.Interface, model, embModel string) *LMStudioCl
 	}
 }
 
-func (mc *LMStudioClient) Think(ctx context.Context, messages []Message, temp float64, maxTokens int) (string, error) {
+func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64, maxTokens int) (string, error) {
 	response, err := mc.generateResponse(ctx, messages, nil, temp, maxTokens)
 	if err != nil {
 		return "", err
@@ -56,19 +55,34 @@ func (mc *LMStudioClient) Think(ctx context.Context, messages []Message, temp fl
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LMStudioClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
-	response, err := mc.generateResponse(ctx, messages, nil, 0.0, 1)
-	if err != nil {
-		return false, err
+func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
+	// agrega instrucción fuerte al final del prompt del usuario
+	msgs := append([]Message{}, Message{
+		Role:    "system",
+		Content: "Return ONLY a JSON object like: {\"answer\": true} or {\"answer\": false}. No extra text.",
+	})
+	msgs = append(msgs, messages...)
+
+	for i := 0; i < 3; i++ {
+		response, err := mc.generateResponse(ctx, msgs, nil, 0.1, 25)
+		if err != nil {
+			return false, err
+		}
+
+		lt := strings.ToLower(strings.TrimSpace(response.Choices[0].Message.Content))
+		switch {
+		case strings.Contains(lt, "true"), strings.Contains(lt, "yes"):
+			return true, nil
+		case strings.Contains(lt, "false"), strings.Contains(lt, "no"):
+			return false, nil
+		default:
+			log.Printf("🤔 Unexpected answer: %s", response.Choices[0].Message.Content)
+		}
 	}
-	lowerResp := strings.ToLower(strings.TrimSpace(response.Choices[0].Message.Content))
-	if lowerResp != "true" && lowerResp != "false" {
-		return false, fmt.Errorf("unexpected response: %v", response)
-	}
-	return lowerResp == "true", nil
+	return false, fmt.Errorf("unexpected yes/no")
 }
 
-func (mc *LMStudioClient) GenerateSummary(ctx context.Context, history []storage.Record) (string, error) {
+func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Record) (string, error) {
 	if len(history) == 0 {
 		return "Task not started yet, incomplete", nil
 	}
@@ -102,7 +116,8 @@ func (mc *LMStudioClient) GenerateSummary(ctx context.Context, history []storage
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolkit map[string]tools.Tool, taskID string) (string, error) {
+func (mc *LLMClient) Process(ctx context.Context, messages []Message, toolkit map[string]tools.Tool,
+	taskID string, stepID int) (string, error) {
 	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
 	if err != nil {
 		return "", err
@@ -110,7 +125,7 @@ func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolk
 
 	message := response.Choices[0].Message
 	for i := 0; i < 5; i++ {
-		messages = append(messages, mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID)...)
+		messages = append(messages, mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID, stepID)...)
 		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
 			return "", err
 		}
@@ -123,8 +138,8 @@ func (mc *LMStudioClient) Process(ctx context.Context, messages []Message, toolk
 	return message.Content, nil
 }
 
-func (mc *LMStudioClient) handleToolCalls(ctx context.Context, toolkit map[string]tools.Tool,
-	toolCalls []toolCall, taskID string) (messages []Message) {
+func (mc *LLMClient) handleToolCalls(ctx context.Context, toolkit map[string]tools.Tool,
+	toolCalls []toolCall, taskID string, stepID int) (messages []Message) {
 	messages = append(messages, Message{Role: "assistant", ToolCalls: toolCalls})
 
 	for i, call := range toolCalls {
@@ -145,6 +160,7 @@ func (mc *LMStudioClient) handleToolCalls(ctx context.Context, toolkit map[strin
 
 		if err := mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
+			StepID:     int64(stepID),
 			Role:       "tool",
 			Tool:       tool.Name,
 			Content:    result,
@@ -166,73 +182,7 @@ func (mc *LMStudioClient) handleToolCalls(ctx context.Context, toolkit map[strin
 	return messages
 }
 
-func (mc *LMStudioClient) enrichWithEmbeddings(ctx context.Context, messages []Message) ([]Message, error) {
-	var enhancedMessages []Message
-	for _, msg := range messages {
-		embedding, err := mc.getEmbeddings(ctx, msg.Content)
-		if err != nil {
-			log.Printf("⚠️ Error obtaining embedding for message: %s", msg.Content)
-			enhancedMessages = append(enhancedMessages, msg)
-			return nil, err
-		}
-
-		enhancedMessages = append(enhancedMessages, Message{
-			Role:    msg.Role,
-			Content: msg.Content + "\n\nEmbedding hash: " + hashEmbedding(embedding),
-		})
-	}
-
-	return enhancedMessages, nil
-}
-
-func (mc *LMStudioClient) getEmbeddings(ctx context.Context, input string) ([]float64, error) {
-	if cached, ok := mc.cache.Load(input); ok {
-		if emb, ok := cached.([]float64); ok {
-			return emb, nil
-		}
-	}
-
-	payload := embeddingRequestPayload{
-		Model: mc.embeddingsModel,
-		Input: input,
-	}
-
-	response, status, err := mc.restClient.Post(ctx, embeddingEndpoint, payload, nil)
-	if err != nil {
-		return nil, fmt.Errorf("embedding request failed: HTTP %d, error: %w", status, err)
-	}
-
-	var embeddingResp embeddingResponse
-	if err = json.Unmarshal(response, &embeddingResp); err != nil {
-		return nil, fmt.Errorf("error parsing embedding response: %w", err)
-	}
-
-	if len(embeddingResp.Data) == 0 {
-		return nil, errors.New("no embedding data received")
-	}
-
-	mc.cache.Store(input, embeddingResp.Data[0].Embedding)
-	return embeddingResp.Data[0].Embedding, nil
-}
-
-func hashEmbedding(embedding []float64) string {
-	hash := sha256.New()
-	for _, value := range embedding {
-		hash.Write([]byte(fmt.Sprintf("%.6f", value)))
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-func (mc *LMStudioClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
-	/*
-		enrichedMessages, err := mc.enrichWithEmbeddings(ctx, messages)
-		if err != nil {
-			log.Printf("⚠️ Error enriching messages with embeddings: %v", err)
-		} else {
-			messages = enrichedMessages
-		}
-	*/
-
+func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
 	payload := requestPayload{
 		Model:       mc.model,
 		Tools:       functionsToPayload(tools),
@@ -245,16 +195,19 @@ func (mc *LMStudioClient) generateResponse(ctx context.Context, messages []Messa
 }
 
 func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayload) {
-	for _, function := range functions {
-		payload = append(payload, functionPayload{
-			Type:     "function",
-			Function: function,
-		})
+	names := make([]string, 0, len(functions))
+	for name := range functions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t := functions[name]
+		payload = append(payload, functionPayload{Type: "function", Function: t})
 	}
 	return payload
 }
 
-func (mc *LMStudioClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
+func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
 	var err error
 	var response []byte
 	var status int

@@ -51,7 +51,6 @@ func (r *Runtime) Start(ctx context.Context) {
 	worker := r.worker
 	r.mu.Unlock()
 
-	// Lanza tarea si corresponde, fuera del lock
 	if startTask && worker != nil {
 		r.mu.Lock()
 		r.activeTask.Store(true)
@@ -227,7 +226,7 @@ func (r *Runtime) executeStep(
 		prompt := worker.PromptSegmentedStep(steps, stepIndex, currentSummary)
 
 		attemptCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		response, perr := r.model.Process(attemptCtx, prompt, toolkit, taskID)
+		response, perr := r.model.Process(attemptCtx, prompt, toolkit, taskID, stepIndex)
 		cancel()
 		if perr != nil {
 			log.Printf("❌ Error processing step %d attempt %d: %v\n", stepIndex+1, attempt+1, perr)

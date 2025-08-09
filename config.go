@@ -70,5 +70,5 @@ func getModel(db storage.Interface) models.Interface {
 	if embModel == "" {
 		embModel = embeddingModel
 	}
-	return models.NewLMStudioClient(db, model, embModel)
+	return models.NewLLMClient(db, model, embModel)
 }
