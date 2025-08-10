@@ -68,7 +68,7 @@ func (mc *LLMClient) sendEmbeddings(ctx context.Context, payload embeddingReques
 			log.Printf("⚠️ %v", lastErr)
 			continue
 		}
-		// éxito
+
 		return &out, nil
 	}
 	return nil, fmt.Errorf("embeddings request failed after %d retries: %w", maxRetries, lastErr)

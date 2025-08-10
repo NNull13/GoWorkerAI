@@ -67,7 +67,7 @@ func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, err
 	msgs = append(msgs, messages...)
 	toolsPreset := tools.NewToolkitFromPreset(tools.PresetPlanReviewer)
 	for attempt := 0; attempt < 3; attempt++ {
-		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.0, -1)
+		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
 		if err != nil {
 			return false, err
 		}

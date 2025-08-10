@@ -23,13 +23,7 @@ type coderInfo struct {
 	Tests      bool     `json:"tests,omitempty"`
 }
 
-func NewCoder(
-	language, task, toolPreset string,
-	codeStyles, acceptConditions, rules []string,
-	maxIterations int,
-	folder string,
-	tests, lockFolder bool,
-) *Coder {
+func NewCoder(language, task, toolPreset string, codeStyles, acceptConditions, rules []string, maxIterations int) *Coder {
 	return &Coder{
 		Worker: Worker{
 			Task: &Task{
@@ -40,12 +34,9 @@ func NewCoder(
 			},
 			ToolsPreset: toolPreset,
 			Rules:       rules,
-			LockFolder:  lockFolder,
-			Folder:      folder,
 		},
 		Language:   language,
 		CodeStyles: codeStyles,
-		Tests:      tests,
 	}
 }
 
@@ -66,8 +57,6 @@ func (c *Coder) TaskInformation() string {
 	taskInformation, _ := json.Marshal(c.buildCoderInfo())
 	return string(taskInformation)
 }
-
-// ------- Shared coder preamble (consistent behavior across prompts)
 
 func (c *Coder) GetPreamble() string {
 	var sb strings.Builder

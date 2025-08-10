@@ -14,332 +14,421 @@ import (
 	"GoWorkerAI/app/utils"
 )
 
+var (
+	workerFolder = os.Getenv("WORKER_FOLDER")
+)
+
+func getRoot() (string, error) {
+	if workerFolder == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(workerFolder)
+	if err != nil {
+		return "", fmt.Errorf("cannot get absolute path of WORKER_FOLDER: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if mkErr := os.MkdirAll(abs, 0o755); mkErr != nil {
+				return "", fmt.Errorf("cannot create WORKER_FOLDER: %w", mkErr)
+			}
+		} else {
+			return "", fmt.Errorf("cannot stat WORKER_FOLDER: %w", err)
+		}
+	} else if !info.IsDir() {
+		return "", fmt.Errorf("WORKER_FOLDER is not a directory: %s", abs)
+	}
+	abs = filepath.Clean(abs)
+	return abs, nil
+}
+
+func ensureInsideRoot(p string) error {
+	root, err := getRoot()
+	if err != nil {
+		return err
+	}
+	p = filepath.Clean(p)
+	if p == root {
+		return nil
+	}
+	sep := string(os.PathSeparator)
+	if !strings.HasPrefix(p, root+sep) {
+		return fmt.Errorf("path escapes sandbox: %s", p)
+	}
+	return nil
+}
+
+func safeJoin(path string) (string, error) {
+	root, err := getRoot()
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return root, nil
+	}
+	if filepath.IsAbs(path) {
+		return "", errors.New("absolute paths are not allowed")
+	}
+	candidate := filepath.Join(root, path)
+	candidate = filepath.Clean(candidate)
+
+	if err := ensureInsideRoot(candidate); err != nil {
+		return "", err
+	}
+	return candidate, nil
+}
+
+func denyIfNoRoot() error {
+	_, err := getRoot()
+	return err
+}
+
+func withParsed[T any](params any, op string, f func(T) (string, error)) (string, error) {
+	v, err := utils.CastAny[T](params)
+	if err != nil {
+		log.Printf("❌ Error parsing %s action: %v\n", op, err)
+		return "", err
+	}
+	if v == nil {
+		log.Printf("❌ %s action is nil\n", op)
+		return "", errors.New("action is nil")
+	}
+	return f(*v)
+}
+
+var fileDispatch = map[string]func(any) (string, error){
+	write_file: func(p any) (string, error) {
+		return withParsed[FileAction](p, "write_file", func(fa FileAction) (string, error) {
+			return writeToFile("", fa.FilePath, fa.Content)
+		})
+	},
+	read_file: func(p any) (string, error) {
+		return withParsed[FileAction](p, "read_file", func(fa FileAction) (string, error) {
+			return readFile("", fa.FilePath)
+		})
+	},
+	delete_file: func(p any) (string, error) {
+		return withParsed[FileAction](p, "delete_file", func(fa FileAction) (string, error) {
+			return deleteFile("", fa.FilePath)
+		})
+	},
+	list_files: func(p any) (string, error) {
+		return withParsed[FileAction](p, "list_files", func(fa FileAction) (string, error) {
+			return listFiles(fa.Directory)
+		})
+	},
+	copy_file: func(p any) (string, error) {
+		return withParsed[CopyAction](p, "copy_file", func(ca CopyAction) (string, error) {
+			return copyFileDirectoryInternal(ca.Source, ca.Destination)
+		})
+	},
+	move_file: func(p any) (string, error) {
+		return withParsed[MoveAction](p, "move_file", func(ma MoveAction) (string, error) {
+			return moveFile("", ma.Source, ma.Destination)
+		})
+	},
+	append_file: func(p any) (string, error) {
+		return withParsed[AppendAction](p, "append_file", func(aa AppendAction) (string, error) {
+			return appendToFile("", aa.FilePath, aa.Content)
+		})
+	},
+	search_file: func(p any) (string, error) {
+		return withParsed[SearchAction](p, "search_file", func(sa SearchAction) (string, error) {
+			return searchInFileOrDir("", sa.FilePath, sa.Pattern, sa.Recursive)
+		})
+	},
+	create_directory: func(p any) (string, error) {
+		return withParsed[CreateDirectoryAction](p, "create_directory", func(cda CreateDirectoryAction) (string, error) {
+			return createDirectory("", cda.DirectoryPath)
+		})
+	},
+}
+
 func executeFileAction(action ToolTask) (string, error) {
-	switch action.Key {
-	case write_file:
-		fa, err := utils.CastAny[FileAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing write_file action: %v\n", err)
-			return "", err
-		}
-		return writeToFile("", fa.FilePath, fa.Content)
-	case read_file:
-		fa, err := utils.CastAny[FileAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing read_file action: %v\n", err)
-			return "", err
-		}
-		return readFile("", fa.FilePath)
-	case delete_file:
-		fa, err := utils.CastAny[FileAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing delete_file action: %v\n", err)
-			return "", err
-		}
-		return deleteFile("", fa.FilePath)
-	case list_files:
-		fa, err := utils.CastAny[FileAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing list_files action: %v\n", err)
-			return "", err
-		}
-		return listFiles(fa.Directory)
-	case copy_file:
-		ca, err := utils.CastAny[CopyAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing copy_file action: %v\n", err)
-			return "", err
-		}
-		return copyFileDirectoryInternal(ca.Source, ca.Destination)
-	case move_file:
-		ma, err := utils.CastAny[MoveAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing move_file action: %v\n", err)
-			return "", err
-		}
-		return moveFile("", ma.Source, ma.Destination)
-	case append_file:
-		aa, err := utils.CastAny[AppendAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing append_file action: %v\n", err)
-			return "", err
-		}
-		return appendToFile("", aa.FilePath, aa.Content)
-	case search_file:
-		sa, err := utils.CastAny[SearchAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing search_file action: %v\n", err)
-			return "", err
-		}
-		return searchInFileOrDir("", sa.FilePath, sa.Pattern, sa.Recursive)
-	case create_directory:
-		cda, err := utils.CastAny[CreateDirectoryAction](action.Parameters)
-		if err != nil {
-			log.Printf("❌ Error parsing create_directory action: %v\n", err)
-			return "", err
-		}
-		return createDirectory("", cda.DirectoryPath)
-	default:
+	h, ok := fileDispatch[action.Key]
+	if !ok {
 		log.Printf("❌ Unknown tool key: %s\n", action.Key)
 		return "", fmt.Errorf("unknown tool key: %s", action.Key)
 	}
+	return h(action.Parameters)
 }
 
-func writeToFile(baseDir, filename, content string) (string, error) {
-	path := filepath.Join(baseDir, filename)
-	err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
-	if err != nil {
-		log.Printf("❌ Error creating directory for %s: %v\n", path, err)
+func writeToFile(_ string, filename, content string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
 		return "", err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	path, err := safeJoin(filename)
 	if err != nil {
-		log.Printf("❌ Error opening file %s: %v\n", path, err)
 		return "", err
 	}
-	defer file.Close()
-	_, err = file.WriteString(content)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		log.Printf("❌ Error writing to file %s: %v\n", path, err)
+		return "", err
+	}
+	defer f.Close()
+	if _, err = f.WriteString(content); err != nil {
 		return "", err
 	}
 	log.Printf("✅ File %s written successfully.\n", path)
 	return "Successfully wrote file " + path, nil
 }
 
-func readFile(baseDir, filename string) (string, error) {
-	path := filepath.Join(baseDir, filename)
+func readFile(_ string, filename string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
+		return "", err
+	}
+	path, err := safeJoin(filename)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		log.Printf("⚠️ File %s does not exist.\n", path)
+		return "[ File " + filename + " was not found in path " + path + " ]", nil
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			log.Printf("⚠️ File %s does not exist.\n", path)
-			return "[ File " + filename + " was not found in path " + path + " ]", nil
-		}
-		log.Printf("❌ Error reading file %s: %v\n", path, err)
 		return "", err
 	}
 	log.Printf("✅ File %s read successfully.\n", path)
 	return string(content), nil
 }
 
-func deleteFile(baseDir, filename string) (string, error) {
-	path := filepath.Join(baseDir, filename)
-	err := os.Remove(path)
+func deleteFile(_ string, filename string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
+		return "", err
+	}
+	path, err := safeJoin(filename)
 	if err != nil {
+		return "", err
+	}
+	if err := os.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			log.Printf("⚠️ File %s does not exist, nothing to delete.\n", path)
 			return "File " + path + " does not exist, nothing to delete", nil
 		}
-		log.Printf("❌ Error deleting file %s: %v\n", path, err)
 		return "", err
 	}
 	log.Printf("✅ File %s deleted successfully.\n", path)
 	return "Successfully deleted file " + path, nil
 }
 
-func listFiles(baseDir string) (string, error) {
-	var note, tree string
-	cwd, err := os.Getwd()
-	if baseDir == "" || baseDir == "." {
-		baseDir = cwd
-	}
-	baseDir = filepath.Clean(baseDir)
-	_, statErr := os.Stat(baseDir)
-	if os.IsNotExist(statErr) {
-		cwd, err = os.Getwd()
-		if err != nil {
-			log.Printf("❌ Error getting current directory: %v\n", err)
-			return "", err
-		}
-		baseDir = filepath.Clean(cwd)
-		note = fmt.Sprintf("⚠️ Could not find that directory. Used '.' instead.\n")
-	}
-	tree, err = utils.BuildTree(baseDir, nil, nil)
-	if err != nil {
-		log.Printf("❌ Error building tree for directory %s: %v\n", baseDir, err)
+func listFiles(dir string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
 		return "", err
 	}
-	log.Printf("✅ Directory listing generated for %s.\n", baseDir)
-	return note + tree, nil
+	path, err := safeJoin(dir)
+	if err != nil {
+		return "", err
+	}
+	tree, err := utils.BuildTree(path, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("✅ Directory listing generated for %s.\n", path)
+	return tree, nil
 }
 
 func copyFileDirectoryInternal(source, destination string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
+		return "", err
+	}
 	if source == "" || destination == "" {
-		log.Printf("❌ Missing source or destination.\n")
 		return "", errors.New("both source and destination parameters are required")
 	}
-	info, err := os.Stat(source)
+	src, err := safeJoin(source)
 	if err != nil {
-		log.Printf("❌ Source %s does not exist: %v\n", source, err)
+		return "", fmt.Errorf("invalid source: %w", err)
+	}
+	dst, err := safeJoin(destination)
+	if err != nil {
+		return "", fmt.Errorf("invalid destination: %w", err)
+	}
+	info, err := os.Lstat(src)
+	if err != nil {
 		return "", fmt.Errorf("source does not exist: %w", err)
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(src)
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve symlink source: %w", err)
+		}
+		if err := ensureInsideRoot(target); err != nil {
+			return "", err
+		}
+		info, err = os.Stat(target)
+		if err != nil {
+			return "", err
+		}
+		src = target
+	}
 	if info.IsDir() {
-		err = copyDir(source, destination)
+		if err := copyDir(src, dst); err != nil {
+			return "", fmt.Errorf("copy operation failed: %w", err)
+		}
 	} else {
-		err = copyFile(source, destination)
+		if err := copyFile(src, dst); err != nil {
+			return "", fmt.Errorf("copy operation failed: %w", err)
+		}
 	}
-	if err != nil {
-		log.Printf("❌ Copy operation failed: %v\n", err)
-		return "", fmt.Errorf("copy operation failed: %w", err)
-	}
-	log.Printf("✅ File %s copied to %s.\n", source, destination)
-	return "Successfully copied " + source + " to " + destination, nil
+	log.Printf("✅ File %s copied to %s.\n", src, dst)
+	return "Successfully copied " + src + " to " + dst, nil
 }
 
 func copyFile(source, dest string) error {
-	inputFile, err := os.Open(source)
-	if err != nil {
-		log.Printf("❌ Error opening source file %s: %v\n", source, err)
+	if err := ensureInsideRoot(source); err != nil {
 		return err
 	}
-	defer inputFile.Close()
-	destDir := filepath.Dir(dest)
-	err = os.MkdirAll(destDir, os.ModePerm)
-	if err != nil {
-		log.Printf("❌ Error creating directory for %s: %v\n", dest, err)
+	if err := ensureInsideRoot(dest); err != nil {
 		return err
 	}
-	outputFile, err := os.Create(dest)
+	in, err := os.Open(source)
 	if err != nil {
-		log.Printf("❌ Error creating destination file %s: %v\n", dest, err)
 		return err
 	}
-	defer outputFile.Close()
-	_, err = io.Copy(outputFile, inputFile)
-	if err != nil {
-		log.Printf("❌ Error copying from %s to %s: %v\n", source, dest, err)
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	info, err := os.Stat(source)
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		log.Printf("❌ Error reading info of source file %s: %v\n", source, err)
 		return err
 	}
-	err = os.Chmod(dest, info.Mode())
-	if err != nil {
-		log.Printf("❌ Error setting permissions on %s: %v\n", dest, err)
+	defer out.Close()
+	if _, err = io.Copy(out, in); err != nil {
 		return err
 	}
-	log.Printf("✅ File %s copied to %s.\n", source, dest)
+	if st, err := os.Stat(source); err == nil {
+		_ = os.Chmod(dest, st.Mode()&0o777)
+	}
 	return nil
 }
 
 func copyDir(source, dest string) error {
-	info, err := os.Stat(source)
-	if err != nil {
-		log.Printf("❌ Error reading directory info for %s: %v\n", source, err)
+	if err := ensureInsideRoot(source); err != nil {
 		return err
 	}
-	err = os.MkdirAll(dest, info.Mode())
-	if err != nil {
-		log.Printf("❌ Error creating directory %s: %v\n", dest, err)
+	if err := ensureInsideRoot(dest); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(source)
+	srcInfo, err := os.Stat(source)
 	if err != nil {
-		log.Printf("❌ Error reading directory %s: %v\n", source, err)
 		return err
 	}
-	for _, entry := range entries {
-		sourcePath := filepath.Join(source, entry.Name())
-		destPath := filepath.Join(dest, entry.Name())
-		if entry.IsDir() {
-			err = copyDir(sourcePath, destPath)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = copyFile(sourcePath, destPath)
-			if err != nil {
-				return err
-			}
+	if err := os.MkdirAll(dest, srcInfo.Mode()); err != nil {
+		return err
+	}
+	return filepath.WalkDir(source, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-	}
-	log.Printf("✅ Directory %s copied to %s.\n", source, dest)
-	return nil
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		return copyFile(path, target)
+	})
 }
 
-func moveFile(baseDir, source, destination string) (string, error) {
-	src := filepath.Join(baseDir, source)
-	dst := filepath.Join(baseDir, destination)
-	err := os.MkdirAll(filepath.Dir(dst), os.ModePerm)
-	if err != nil {
-		log.Printf("❌ Error creating directory for %s: %v\n", dst, err)
+func moveFile(_ string, source, destination string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
 		return "", err
 	}
-	err = os.Rename(src, dst)
+	src, err := safeJoin(source)
 	if err != nil {
-		log.Printf("❌ Error moving from %s to %s: %v\n", src, dst, err)
+		return "", err
+	}
+	dst, err := safeJoin(destination)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.Rename(src, dst); err != nil {
 		return "", err
 	}
 	log.Printf("✅ Moved %s to %s.\n", src, dst)
 	return "Successfully moved " + src + " to " + dst, nil
 }
 
-func appendToFile(baseDir, filename, content string) (string, error) {
-	path := filepath.Join(baseDir, filename)
-	err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
-	if err != nil {
-		log.Printf("❌ Error creating directory for %s: %v\n", path, err)
+func appendToFile(_ string, filename, content string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
 		return "", err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	path, err := safeJoin(filename)
 	if err != nil {
-		log.Printf("❌ Error opening file %s for append: %v\n", path, err)
 		return "", err
 	}
-	defer file.Close()
-	_, err = file.WriteString(content)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		log.Printf("❌ Error appending to file %s: %v\n", path, err)
+		return "", err
+	}
+	defer f.Close()
+	if _, err = f.WriteString(content); err != nil {
 		return "", err
 	}
 	log.Printf("✅ Content appended to file %s.\n", path)
 	return "Successfully appended content to " + path, nil
 }
 
-func searchInFileOrDir(baseDir, pathParam, pattern string, recursive bool) (string, error) {
-	absPath := filepath.Join(baseDir, pathParam)
+func searchInFileOrDir(_ string, pathParam, pattern string, recursive bool) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
+		return "", err
+	}
+	absPath, err := safeJoin(pathParam)
+	if err != nil {
+		return "", err
+	}
 	stat, err := os.Stat(absPath)
 	if err != nil {
-		log.Printf("❌ Could not access path %s: %v\n", absPath, err)
 		return "", fmt.Errorf("could not access path: %w", err)
 	}
 	if stat.IsDir() {
+		var results []string
 		if recursive {
-			results, e := searchDirectoryRecursive(absPath, pattern)
-			if e != nil {
-				log.Printf("❌ Error searching directory recursively %s: %v\n", absPath, e)
-				return "", e
-			}
-			log.Printf("✅ Recursive search completed in %s.\n", absPath)
-			return strings.Join(results, "\n"), nil
+			results, err = searchDirectoryRecursive(absPath, pattern)
+		} else {
+			results, err = searchDirectory(absPath, pattern)
 		}
-		results, e := searchDirectory(absPath, pattern)
-		if e != nil {
-			log.Printf("❌ Error searching directory %s: %v\n", absPath, e)
-			return "", e
+		if err != nil {
+			return "", err
 		}
-		log.Printf("✅ Search completed in %s.\n", absPath)
 		return strings.Join(results, "\n"), nil
 	}
-	results, e := searchFile(absPath, pattern)
-	if e != nil {
-		log.Printf("❌ Error searching file %s: %v\n", absPath, e)
-		return "", e
+	found, err := searchFile(absPath, pattern)
+	if err != nil {
+		return "", err
 	}
-	log.Printf("✅ Search completed in file %s.\n", absPath)
-	return strings.Join(results, "\n"), nil
+	return strings.Join(found, "\n"), nil
 }
 
-func searchDirectoryRecursive(dir, pattern string) ([]string, error) {
+func searchDirectoryRecursive(baseDir, pattern string) ([]string, error) {
+	if err := ensureInsideRoot(baseDir); err != nil {
+		return nil, err
+	}
 	var matches []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
+	err := filepath.WalkDir(baseDir, func(p string, d os.DirEntry, e error) error {
+		if e != nil {
 			return nil
 		}
-		if !info.IsDir() {
-			found, fe := searchFile(path, pattern)
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !d.IsDir() {
+			found, fe := searchFile(p, pattern)
 			if fe != nil {
 				return nil
 			}
@@ -348,44 +437,46 @@ func searchDirectoryRecursive(dir, pattern string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("❌ Error walking through directory %s: %v\n", dir, err)
 		return nil, err
 	}
 	return matches, nil
 }
 
-func searchDirectory(dir, pattern string) ([]string, error) {
-	var matches []string
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		log.Printf("❌ Error reading directory %s: %v\n", dir, err)
+func searchDirectory(baseDir, pattern string) ([]string, error) {
+	if err := ensureInsideRoot(baseDir); err != nil {
 		return nil, err
 	}
-	for _, fileEntry := range files {
-		if !fileEntry.IsDir() {
-			path := filepath.Join(dir, fileEntry.Name())
-			found, e := searchFile(path, pattern)
-			if e != nil {
-				log.Printf("⚠️ Error searching file %s: %v\n", path, e)
-				continue
-			}
-			matches = append(matches, found...)
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	var matches []string
+	for _, e := range entries {
+		if e.IsDir() || e.Type()&os.ModeSymlink != 0 {
+			continue
 		}
+		p := filepath.Join(baseDir, e.Name())
+		found, fe := searchFile(p, pattern)
+		if fe != nil {
+			continue
+		}
+		matches = append(matches, found...)
 	}
 	return matches, nil
 }
 
 func searchFile(path, pattern string) ([]string, error) {
+	if err := ensureInsideRoot(path); err != nil {
+		return nil, err
+	}
 	var matches []string
 	file, err := os.Open(path)
 	if err != nil {
-		log.Printf("❌ Error opening file %s for search: %v\n", path, err)
 		return nil, err
 	}
 	defer file.Close()
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		log.Printf("❌ Error compiling regex: %v\n", err)
 		return nil, err
 	}
 	scanner := bufio.NewScanner(file)
@@ -397,18 +488,21 @@ func searchFile(path, pattern string) ([]string, error) {
 		}
 		lineNumber++
 	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("❌ Error scanning file %s: %v\n", path, err)
+	if err = scanner.Err(); err != nil {
 		return nil, err
 	}
 	return matches, nil
 }
 
-func createDirectory(baseDir, directoryPath string) (string, error) {
-	path := filepath.Join(baseDir, directoryPath)
-	err := os.MkdirAll(path, os.ModePerm)
+func createDirectory(_ string, directoryPath string) (string, error) {
+	if err := denyIfNoRoot(); err != nil {
+		return "", err
+	}
+	path, err := safeJoin(directoryPath)
 	if err != nil {
-		log.Printf("❌ Error creating directory %s: %v\n", path, err)
+		return "", err
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", err
 	}
 	log.Printf("✅ Directory %s created successfully.\n", path)

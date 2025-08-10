@@ -231,10 +231,11 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 
 		log.Printf("✅ Step %d response: %s", sc.Index+1, resp)
 
-		if summary, err = r.stepSummary(ctx, sc.TaskID, sc.Index); err == nil {
-			log.Printf("ℹ️ Current step %d summary: %s\n", sc.Index+1, summary)
+		if summary, err = r.stepSummary(ctx, sc.TaskID, sc.Index); err != nil {
 			continue
 		}
+
+		log.Printf("ℹ️ Current step %d summary: %s\n", sc.Index+1, summary)
 
 		ok, err := r.model.YesOrNo(ctx, worker.PromptValidation(sc.Task, summary))
 		if err != nil {
@@ -243,7 +244,7 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 		}
 
 		if ok {
-			log.Printf("✅ Step %d completed (LLM)\n", sc.Index+1)
+			log.Printf("✅ Step %d completed, task: %s\n", sc.Index+1, sc.Task)
 			return true, summary
 		}
 

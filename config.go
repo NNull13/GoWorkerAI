@@ -41,13 +41,9 @@ var customWorkers = []workers.Interface{
 		[]string{}, // accept conditions
 		[]string{
 			"Must be a Golang application.",
-			"Only work in the seed_<yyyy-mm_dd_hh_mm> folder.",
 			"Do not touch files outside the new working folder.",
 		}, // rules
 		5,
-		"",
-		true,
-		false,
 	),
 }
 

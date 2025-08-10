@@ -22,8 +22,6 @@ type Interface interface {
 type Base interface {
 	SetTask(*Task)
 	GetTask() *Task
-	GetFolder() string
-	GetLockFolder() bool
 	GetToolsPreset() string
 	GetPreamble() string
 }
@@ -39,8 +37,6 @@ type Worker struct {
 	Task        *Task
 	ToolsPreset string
 	Rules       []string
-	LockFolder  bool
-	Folder      string
 }
 
 type workerInfo struct {
@@ -69,20 +65,6 @@ func (w *Worker) GetTask() *Task {
 	return w.Task
 }
 
-func (w *Worker) GetFolder() string {
-	if w == nil {
-		return ""
-	}
-	return w.Folder
-}
-
-func (w *Worker) GetLockFolder() bool {
-	if w == nil {
-		return false
-	}
-	return w.LockFolder
-}
-
 func (w *Worker) GetToolsPreset() string {
 	if w == nil {
 		return ""
@@ -97,8 +79,6 @@ func (w *Worker) buildWorkerInfo() workerInfo {
 	info := workerInfo{
 		ToolsPreset: w.ToolsPreset,
 		Rules:       append([]string(nil), w.Rules...),
-		Folder:      w.Folder,
-		LockFolder:  w.LockFolder,
 	}
 	if w.Task != nil {
 		info.ID = w.Task.ID.String()
