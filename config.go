@@ -17,29 +17,33 @@ const (
 
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
-		"Go",
-		"You are an expert in Go unit testing. Your mission is to read each file and make the tests that cover all"+
-			" public functions and relevant behaviors in this directory without modifying any existing logic files. "+
-			"Use Go's native testing library and avoid unnecessary external frameworks. Leverage table-driven tests and "+
-			"sub-tests where appropriate, ensure each file is formatted with go fmt, and do not introduce any compilation"+
-			" warnings. Process by 1 file per once, first list all, then each by each read file,"+
-			"write new file, read both and next",
+		"Golang",
+		"You are a Golang engineer. Create a new uniquely named folder like `seed_<yyyy-mm_dd_hh_mm>` in the current directory and work only inside it. "+
+			"Inside that folder, initialize a minimal Go module (e.g., `module example.com/seed`). "+
+			"Build a small Golang application that demonstrates your skills by implementing three functions in a package (e.g., `utils`): "+
+			"1) ReverseString(s string) string — reverse a string in a Unicode-safe way (use runes). "+
+			"2) Factorial(n int) int — return 0 for n<0; otherwise compute n!. "+
+			"3) IsPrime(n int) bool — return true only for prime n; for n<2 return false. "+
+			"Write table-driven tests in `_test.go` with clear case names and `t.Run` subtests covering normal, edge, and error-like inputs. "+
+			"Ensure the code compiles, is idiomatic, and formatted. "+
+			"At the end, list all created files (paths) and provide a brief summary of what you built. "+
+			"Do not modify anything outside the seed folder.",
+		"file_basic", // toolPreset
 		[]string{
-			"Use table-driven tests with well-defined structs for inputs and expected outputs.",
-			"Leverage sub-tests via t.Run for each scenario in your table-driven tests.",
-			"Optionally use testify (assert/require) if already permitted or present in the project, but don't introduce new dependencies without necessity.",
-			"Include descriptive test case names and clear error messages.",
-		},
+			"Write table-driven tests with descriptive case names for clarity.",
+			"Organize tests using `t.Run` subtests for each case.",
+			"Rely only on Go's standard library; avoid external dependencies.",
+			"Add clear, meaningful doc comments for all exported identifiers.",
+			"Follow idiomatic Go naming conventions for packages, functions, and variables.",
+			"Keep functions small, focused, and easy to read.",
+			"Ensure all code is formatted using `go fmt` before completion.",
+		},          // code style
+		[]string{}, // accept conditions
 		[]string{
-			"Do not overwrite or modify existing tests.",
-			"Generate new `_test.go` files for each set of public functions or methods that need coverage.",
-			"Each test must use the signature `func TestXxx(t *testing.T)` and provide clear error messages.",
-			"Avoid external dependencies unless strictly necessary.",
-		},
-		[]string{
-			"Follow Go style guidelines and apply go fmt before finishing.",
-			"Use sub-tests (t.Run) and table-driven tests to organize your tests.",
-		},
+			"Must be a Golang application.",
+			"Only work in the seed_<yyyy-mm_dd_hh_mm> folder.",
+			"Do not touch files outside the new working folder.",
+		}, // rules
 		5,
 		"",
 		true,
@@ -48,7 +52,7 @@ var customWorkers = []workers.Interface{
 }
 
 func getClients() []clients.Interface {
-	return []clients.Interface{clients.NewDiscordClient()}
+	return nil //[]clients.Interface{clients.NewDiscordClient()}
 }
 
 func getDB() storage.Interface {
@@ -64,5 +68,5 @@ func getModel(db storage.Interface) models.Interface {
 	if embModel == "" {
 		embModel = embeddingModel
 	}
-	return models.NewLMStudioClient(db, model, embModel)
+	return models.NewLLMClient(db, model, embModel)
 }

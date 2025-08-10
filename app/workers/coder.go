@@ -1,10 +1,12 @@
 package workers
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 
 	"github.com/google/uuid"
+
+	"GoWorkerAI/app/models"
 )
 
 type Coder struct {
@@ -14,8 +16,15 @@ type Coder struct {
 	Tests      bool
 }
 
+type coderInfo struct {
+	workerInfo
+	Language   string   `json:"language,omitempty"`
+	CodeStyles []string `json:"code_styles,omitempty"`
+	Tests      bool     `json:"tests,omitempty"`
+}
+
 func NewCoder(
-	language, task string,
+	language, task, toolPreset string,
 	codeStyles, acceptConditions, rules []string,
 	maxIterations int,
 	folder string,
@@ -29,9 +38,10 @@ func NewCoder(
 				AcceptConditions: acceptConditions,
 				MaxIterations:    maxIterations,
 			},
-			Rules:      rules,
-			LockFolder: lockFolder,
-			Folder:     folder,
+			ToolsPreset: toolPreset,
+			Rules:       rules,
+			LockFolder:  lockFolder,
+			Folder:      folder,
 		},
 		Language:   language,
 		CodeStyles: codeStyles,
@@ -39,14 +49,51 @@ func NewCoder(
 	}
 }
 
-func (c *Coder) TaskInformation() string {
-	baseInfo := c.Worker.TaskInformation()
-	var sb strings.Builder
-	sb.WriteString(baseInfo)
-	sb.WriteString(fmt.Sprintf("Programming Language: %s\n", c.Language))
-	if len(c.CodeStyles) > 0 {
-		sb.WriteString(fmt.Sprintf("Code Styles: %s\n", strings.Join(c.CodeStyles, ", ")))
+func (c *Coder) buildCoderInfo() coderInfo {
+	if c == nil {
+		return coderInfo{}
 	}
-	sb.WriteString(fmt.Sprintf("Testing Required: %t\n", c.Tests))
+	base := c.buildWorkerInfo()
+	return coderInfo{
+		workerInfo: base,
+		Language:   c.Language,
+		CodeStyles: append([]string(nil), c.CodeStyles...),
+		Tests:      c.Tests,
+	}
+}
+
+func (c *Coder) TaskInformation() string {
+	taskInformation, _ := json.Marshal(c.buildCoderInfo())
+	return string(taskInformation)
+}
+
+// ------- Shared coder preamble (consistent behavior across prompts)
+
+func (c *Coder) GetPreamble() string {
+	var sb strings.Builder
+	sb.WriteString(strings.Join([]string{
+		"You are an expert software engineer and careful editor.",
+		"Goals:",
+		"- Write correct, minimal, maintainable code that compiles and runs.",
+		"- Prefer small, idempotent changes with clear file operations.",
+		"- Follow the specified language and code styles.",
+		"- If information is missing, add explicit TODOs or clarification steps (but keep outputs in the required format).",
+		"General Rules:",
+		"- Deterministic output. No filler text, no extra commentary.",
+		"- If you are unsure, choose the safest, reversible change.",
+		"- Keep diffs minimal; do not rewrite unrelated code.",
+	}, "\n"))
 	return sb.String()
+}
+
+func (c *Coder) PromptPlan(taskInformation string) []models.Message {
+	sys := planSystemPrompt(c.GetPreamble())
+	user := strings.Join([]string{
+		taskInformation,
+		"Generate a precise, step-by-step technical development plan, strictly following the format rules.",
+	}, "\n\n")
+	return []models.Message{
+		{Role: "system", Content: sys},
+		{Role: "user", Content: user},
+	}
 }

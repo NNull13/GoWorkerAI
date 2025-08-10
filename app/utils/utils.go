@@ -81,10 +81,32 @@ func CastAny[T any](v any) (*T, error) {
 func SplitPlanIntoSteps(plan string) []string {
 	var steps []string
 	lines := strings.Split(plan, "\n")
-	re := regexp.MustCompile(`^\d+\.\s*\[(.*?)\]\s*$`)
-	for _, line := range lines {
-		if match := re.FindStringSubmatch(strings.TrimSpace(line)); len(match) == 2 {
-			steps = append(steps, match[1])
+
+	// Matches:
+	// 1) "1. [desc]"         -> group 1
+	// 2) "1. desc"           -> group 2
+	// 3) "- desc" or "* desc"-> group 3
+	re := regexp.MustCompile(`^\s*(?:\d+\.\s*(?:\[(.*?)\]|(.+))|[-*]\s+(.+))\s*$`)
+
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		m := re.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		// Pick the first non-empty capture among groups 1..3
+		var desc string
+		for _, g := range m[1:] {
+			if strings.TrimSpace(g) != "" {
+				desc = g
+				break
+			}
+		}
+		if desc != "" {
+			steps = append(steps, strings.TrimSpace(desc))
 		}
 	}
 	return steps

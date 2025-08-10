@@ -7,7 +7,7 @@ import (
 
 type Interface interface {
 	SaveHistory(ctx context.Context, iteration Record) error
-	GetHistoryByTaskID(ctx context.Context, taskID string, stepID ...int) ([]Record, error)
+	GetHistoryByTaskID(ctx context.Context, taskID string, stepID int) ([]Record, error)
 }
 
 type Record struct {

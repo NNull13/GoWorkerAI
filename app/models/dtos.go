@@ -45,13 +45,16 @@ type requestPayload struct {
 }
 
 type embeddingRequestPayload struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
+	Model string      `json:"model"`
+	Input interface{} `json:"input"`
+}
+
+type embeddingItem struct {
+	Embedding []float32 `json:"embedding"`
+	Index     int       `json:"index"`
 }
 
 type embeddingResponse struct {
-	Object string `json:"object"`
-	Data   []struct {
-		Embedding []float64 `json:"embedding"`
-	} `json:"data"`
+	Data  []embeddingItem `json:"data"`
+	Model string          `json:"model"`
 }

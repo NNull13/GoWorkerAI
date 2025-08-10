@@ -5,6 +5,8 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
@@ -14,170 +16,258 @@ import (
 )
 
 type Runtime struct {
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	worker     workers.Interface
 	model      models.Interface
 	toolkit    map[string]tools.Tool
-	events     chan Event
-	activeTask bool
-	cancelFunc context.CancelFunc
 	db         storage.Interface
+	events     chan Event
+	activeTask atomic.Bool
+	cancelFunc context.CancelFunc
 }
 
-func NewRuntime(worker workers.Interface, model models.Interface, initialActions map[string]tools.Tool,
-	db storage.Interface, activeTask bool) *Runtime {
-	return &Runtime{
-		worker:     worker,
-		model:      model,
-		events:     make(chan Event, 100),
-		toolkit:    initialActions,
-		activeTask: activeTask,
-		db:         db,
+type stepCtx struct {
+	TaskID      string
+	Task        string
+	Index       int
+	Plan        []string
+	PrevSummary string
+	MaxAttempts int
+}
+
+func NewRuntime(w workers.Interface, m models.Interface, initial map[string]tools.Tool,
+	db storage.Interface, startTask bool) *Runtime {
+	rt := &Runtime{
+		worker:  w,
+		model:   m,
+		events:  make(chan Event, 1024),
+		toolkit: make(map[string]tools.Tool, len(initial)),
+		db:      db,
 	}
+	for k, v := range initial {
+		rt.toolkit[k] = v
+	}
+	rt.activeTask.Store(startTask)
+	return rt
 }
 
 func (r *Runtime) Start(ctx context.Context) {
+	runtimeCtx, runtimeCancel := context.WithCancel(ctx)
 	r.mu.Lock()
-	if r.activeTask {
-		cctx, cancel := context.WithCancel(ctx)
-		r.cancelFunc = cancel
-		go r.runTask(cctx)
-	}
+	r.cancelFunc = runtimeCancel
+	startTask := r.activeTask.Load()
+	worker := r.worker
 	r.mu.Unlock()
+
+	if startTask && worker != nil {
+		r.mu.Lock()
+		r.activeTask.Store(true)
+		r.mu.Unlock()
+
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("❌ Panic recovered in runTask: %v\nStack trace:\n%s", rec, debug.Stack())
+				}
+				r.StopRuntime()
+			}()
+			if err := r.runTask(runtimeCtx); err != nil {
+				log.Printf("Error running task: %v", err)
+			}
+		}()
+	}
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-runtimeCtx.Done():
 			return
 		case ev, ok := <-r.events:
 			if !ok {
 				return
 			}
-			r.handleEvent(ev)
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						log.Printf("❌ Panic recovered in handleEvent: %v\nStack trace:\n%s", rec, debug.Stack())
+					}
+				}()
+				r.handleEvent(ev)
+			}()
 		}
 	}
 }
 
+func (r *Runtime) StopRuntime() {
+	r.mu.Lock()
+	r.worker.SetTask(nil)
+	if r.cancelFunc != nil {
+		r.cancelFunc()
+		r.cancelFunc = nil
+	}
+	r.mu.Unlock()
+}
+
 func (r *Runtime) AddTools(newActions []tools.Tool) {
 	r.mu.Lock()
+	if r.toolkit == nil {
+		r.toolkit = make(map[string]tools.Tool)
+	}
 	for _, newAction := range newActions {
 		r.toolkit[newAction.Name] = newAction
 	}
 	r.mu.Unlock()
 }
 
+func (r *Runtime) Toolkit() map[string]tools.Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	copy := make(map[string]tools.Tool, len(r.toolkit))
+	for k, v := range r.toolkit {
+		copy[k] = v
+	}
+	return copy
+}
+
 func (r *Runtime) QueueEvent(event Event) {
 	select {
 	case r.events <- event:
-	default:
-		log.Print("⚠️ Event queue is full, dropping event")
+	case <-time.After(100 * time.Millisecond):
+		log.Printf("⚠️ Event queue is full, dropping event, task: %v", event.Task)
 	}
 }
 
-func (r *Runtime) runTask(ctx context.Context) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			log.Printf("❌ Panic recovered in runTask: %v\nStack trace:\n%s", rec, debug.Stack())
-		}
-	}()
-
-	r.mu.Lock()
+func (r *Runtime) runTask(ctx context.Context) error {
+	r.mu.RLock()
 	currentWorker := r.worker
-	r.activeTask = false
-	r.mu.Unlock()
+	tk := cloneToolkit(r.toolkit)
+	r.mu.RUnlock()
 
 	if currentWorker == nil {
-		log.Printf("⚠️ No worker assigned, cannot run task.\n")
-		return
+		log.Println("⚠️ No worker assigned, cannot run task.")
+		return nil
 	}
-
 	task := currentWorker.GetTask()
 	if task == nil {
-		log.Printf("⚠️ Worker returned nil task.\n")
-		return
+		log.Println("⚠️ Worker returned nil task.")
+		return nil
 	}
-	taskID := task.ID.String()
 
+	taskID := task.ID.String()
 	log.Printf("▶️ Starting task: %s\n", task.Task)
-	taskInfo := currentWorker.TaskInformation()
-	plan, err := r.model.Think(ctx, currentWorker.PromptPlan(taskInfo), 0.33, -1)
+
+	planText, err := r.model.Think(ctx, currentWorker.PromptPlan(currentWorker.TaskInformation()), 0.25, -1)
 	if err != nil {
 		log.Printf("❌ Error generating initial plan: %v\n", err)
-		return
+		return err
 	}
-	log.Printf("✅ Plan generated:\n%s\n", plan)
+	log.Printf("✅ Plan generated:\n%s\n", planText)
 
-	steps := utils.SplitPlanIntoSteps(plan)
+	steps := utils.SplitPlanIntoSteps(planText)
 	if len(steps) == 0 {
-		log.Printf("⚠️ Could not split plan into steps, aborting.\n")
-		return
+		log.Println("⚠️ Could not split plan into steps, aborting.")
+		return nil
 	}
 	log.Printf("✅ Detected %d step(s) in plan.\n", len(steps))
 
-	var summary string
-	for stepIndex, step := range steps {
-		completed, newSummary := r.executeStep(ctx, currentWorker, taskID, stepIndex, step, task.MaxIterations, summary, plan, steps)
-		if !completed {
-			log.Printf("❌ Step %d could not be completed, continue with task execution.\n", stepIndex+1)
+	var runningSummary string
+	for i, step := range steps {
+		ok, newSummary := r.runStepWithValidation(ctx, stepCtx{
+			TaskID:      taskID,
+			Task:        step,
+			Index:       i,
+			Plan:        steps,
+			PrevSummary: runningSummary,
+			MaxAttempts: task.MaxIterations,
+		}, currentWorker, tk)
+		if !ok {
+			log.Printf("❌ Step %d could not be completed, continuing.\n", i+1)
 		}
-		summary = newSummary
+		runningSummary = newSummary
 	}
 
-	history, err := r.db.GetHistoryByTaskID(ctx, taskID, 0)
+	history, err := r.db.GetHistoryByTaskID(ctx, taskID, -1) //all steps
 	if err != nil {
-		log.Printf("❌ Error final GetHistoryByTaskID: %s\n", err.Error())
+		log.Printf("❌ Error final GetHistoryByTaskID: %s\n", err)
 	}
 	finalSummary, _ := r.model.GenerateSummary(ctx, history)
 	log.Printf("✅ Final summary: %s\n", finalSummary)
 
-	decision, err := r.model.YesOrNo(ctx, currentWorker.PromptValidation(plan, finalSummary))
+	finalOK, err := r.model.YesOrNo(ctx, currentWorker.PromptValidation(planText, finalSummary))
 	if err != nil {
 		log.Printf("❌ Error in final validation: %v\n", err)
-		return
+		return err
 	}
-	if decision {
+
+	if finalOK {
 		log.Printf("🎉 Task successfully completed: %s\n", task.Task)
 	} else {
 		log.Printf("🚧 Task is not fully completed according to validation: %s\n", task.Task)
 	}
+	return nil
 }
 
-func (r *Runtime) executeStep(ctx context.Context, worker workers.Interface, taskID string, stepIndex int, step string,
-	maxIterations int, currentSummary, plan string, steps []string) (bool, string) {
-	for attempt := 0; attempt < maxIterations; attempt++ {
+func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker workers.Interface,
+	toolkit map[string]tools.Tool) (bool, string) {
+	summary := sc.PrevSummary
+
+	for attempt := 1; attempt <= sc.MaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			log.Printf("⚠️ Context canceled, stopping task.\n")
-			return false, currentSummary
+			log.Println("⚠️ Context canceled, stopping task.")
+			return false, summary
 		default:
-			log.Printf("▶️ Executing step %d (attempt %d): %s\n", stepIndex+1, attempt+1, step)
-			prompt := worker.PromptSegmentedStep(steps, stepIndex, currentSummary)
-			response, perr := r.model.Process(ctx, prompt, r.toolkit, taskID)
-			if perr != nil {
-				log.Printf("❌ Error processing step %d attempt %d: %v\n", stepIndex+1, attempt+1, perr)
-				continue
-			}
-			log.Printf("✅ Step %d response:\n%s\n", stepIndex+1, response)
-
-			history, err := r.db.GetHistoryByTaskID(ctx, taskID, stepIndex)
-			if err != nil {
-				log.Printf("❌ Error retrieving history for step %d: %v\n", stepIndex+1, err)
-				continue
-			}
-
-			currentSummary, _ = r.model.GenerateSummary(ctx, history)
-			log.Printf("ℹ️ Current step %d summary: %s\n", stepIndex+1, currentSummary)
-
-			stepCompleted, err := r.model.YesOrNo(ctx, worker.PromptValidation(plan, currentSummary))
-			if err != nil {
-				log.Printf("❌ Error validating step %d: %v\n", stepIndex+1, err)
-				continue
-			}
-			if stepCompleted {
-				log.Printf("✅ Step %d completed successfully\n", stepIndex+1)
-				return true, currentSummary
-			}
 		}
+
+		step := sc.Plan[sc.Index]
+		log.Printf("▶️ Executing step %d (attempt %d): %s\n", sc.Index+1, attempt, step)
+
+		prompt := worker.PromptSegmentedStep(sc.Plan, sc.Index, summary, worker.GetPreamble())
+
+		resp, err := r.model.Process(ctx, prompt, toolkit, sc.TaskID, sc.Index)
+		if err != nil {
+			log.Printf("❌ Error processing step %d attempt %d: %v\n", sc.Index+1, attempt, err)
+			continue
+		}
+
+		log.Printf("✅ Step %d response: %s", sc.Index+1, resp)
+
+		if summary, err = r.stepSummary(ctx, sc.TaskID, sc.Index); err == nil {
+			log.Printf("ℹ️ Current step %d summary: %s\n", sc.Index+1, summary)
+			continue
+		}
+
+		ok, err := r.model.YesOrNo(ctx, worker.PromptValidation(sc.Task, summary))
+		if err != nil {
+			log.Printf("❌ Error validating step %d (LLM): %v\n", sc.Index+1, err)
+			continue
+		}
+
+		if ok {
+			log.Printf("✅ Step %d completed (LLM)\n", sc.Index+1)
+			return true, summary
+		}
+
+		log.Printf("❌ Step %d not completed, task: %s\n", sc.Index+1, sc.Task)
 	}
-	return false, currentSummary
+
+	return false, summary
+}
+
+func (r *Runtime) stepSummary(ctx context.Context, taskID string, stepIdx int) (string, error) {
+	history, err := r.db.GetHistoryByTaskID(ctx, taskID, stepIdx)
+	if err != nil {
+		return "", err
+	}
+	if len(history) == 0 {
+		return "", nil
+	}
+	return r.model.GenerateSummary(ctx, history)
+}
+
+func cloneToolkit(src map[string]tools.Tool) map[string]tools.Tool {
+	tk := make(map[string]tools.Tool, len(src))
+	for k, v := range src {
+		tk[k] = v
+	}
+	return tk
 }

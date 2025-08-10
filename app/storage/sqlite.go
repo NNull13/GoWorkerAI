@@ -25,7 +25,7 @@ func getDBPath() string {
 			log.Fatalf("❌ Error getting project directory: %v", err)
 		}
 		defaultPath := filepath.Join(projectDir, "data", "database.db")
-		if err := os.MkdirAll(filepath.Dir(defaultPath), os.ModePerm); err != nil {
+		if err = os.MkdirAll(filepath.Dir(defaultPath), os.ModePerm); err != nil {
 			log.Fatalf("❌ Error creating data directory: %v", err)
 		}
 		log.Printf("📂 DB_PATH not set, using default: %s", defaultPath)
@@ -91,15 +91,15 @@ func (s *SQLiteContextStorage) SaveHistory(ctx context.Context, record Record) e
 	return nil
 }
 
-func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID string, stepID ...int) ([]Record, error) {
+func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID string, stepID int) ([]Record, error) {
 	query := `
          SELECT id, task_id, step_id, role, content, tool, parameters, created_at
          FROM records
-         WHERE task_id = ?`
+         WHERE task_id = ? `
 	args := []any{taskID}
-	if len(stepID) > 0 {
+	if stepID >= 0 {
 		query += " AND step_id = ?"
-		args = append(args, stepID[0])
+		args = append(args, stepID)
 	}
 	query += " ORDER BY id ASC"
 
@@ -113,7 +113,8 @@ func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID st
 	for rows.Next() {
 		var it Record
 		var createdAt string
-		if err = rows.Scan(&it.ID, &it.TaskID, &it.StepID, &it.Role, &it.Content, &it.Tool, &it.Parameters, &createdAt); err != nil {
+		if err = rows.Scan(&it.ID, &it.TaskID, &it.StepID, &it.Role, &it.Content, &it.Tool,
+			&it.Parameters, &createdAt); err != nil {
 			log.Printf("⚠️ Error scanning row for task %s: %v", taskID, err)
 			continue
 		}
