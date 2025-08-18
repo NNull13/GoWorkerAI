@@ -2,10 +2,13 @@ package runtime
 
 import (
 	"bytes"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"path/filepath"
 	"sync"
 )
-
-var AuditInstance *AuditLogger
 
 type AuditLogger struct {
 	mu      sync.RWMutex
@@ -16,6 +19,24 @@ type AuditLogger struct {
 	lineBuf bytes.Buffer
 }
 
+const (
+	colorReset = "\033[0m"
+)
+
+type colorWriter struct {
+	w     io.Writer
+	color string
+}
+
+func (cw colorWriter) Write(p []byte) (int, error) {
+	if cw.color == "" {
+		return cw.w.Write(p)
+	}
+	colored := append([]byte(cw.color), p...)
+	colored = append(colored, []byte(colorReset)...)
+	return cw.w.Write(colored)
+}
+
 func NewAuditLogger(capacity int) *AuditLogger {
 	if capacity <= 0 {
 		capacity = 1
@@ -24,6 +45,24 @@ func NewAuditLogger(capacity int) *AuditLogger {
 		buf: make([]string, capacity),
 		cap: capacity,
 	}
+}
+
+// NewWorkerLogger creates a logger that writes to a worker specific file,
+// the console (with optional color) and keeps an in-memory ring buffer for audits.
+func NewWorkerLogger(worker, color string, capacity int) (*AuditLogger, *log.Logger, error) {
+	audit := NewAuditLogger(capacity)
+
+	if err := os.MkdirAll("logs", 0o755); err != nil {
+		return nil, nil, err
+	}
+	file, err := os.OpenFile(filepath.Join("logs", fmt.Sprintf("%s.log", worker)), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, nil, err
+	}
+	cw := colorWriter{w: os.Stdout, color: color}
+	mw := io.MultiWriter(cw, file, audit)
+	logger := log.New(mw, fmt.Sprintf("[%s] ", worker), log.LstdFlags)
+	return audit, logger, nil
 }
 
 func (a *AuditLogger) Write(p []byte) (int, error) {

@@ -1,13 +1,15 @@
 package runtime
 
 import (
+	"io"
+	"log"
 	"testing"
 
 	"GoWorkerAI/app/tools"
 )
 
 func TestRuntimeAddTools(t *testing.T) {
-	r := NewRuntime(nil, nil, nil, nil, false)
+	r := NewRuntime(nil, nil, nil, nil, false, log.New(io.Discard, "", 0))
 	r.AddTools([]tools.Tool{{Name: "a"}, {Name: "b"}})
 	tk := r.Toolkit()
 	if len(tk) != 2 || tk["a"].Name != "a" || tk["b"].Name != "b" {
@@ -20,7 +22,7 @@ func TestRuntimeAddTools(t *testing.T) {
 }
 
 func TestRuntimeQueueEvent(t *testing.T) {
-	r := NewRuntime(nil, nil, nil, nil, false)
+	r := NewRuntime(nil, nil, nil, nil, false, log.New(io.Discard, "", 0))
 	r.QueueEvent(Event{})
 	if len(r.events) != 1 {
 		t.Fatalf("unexpected event queue length: %d", len(r.events))
