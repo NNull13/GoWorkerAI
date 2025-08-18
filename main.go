@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -16,17 +17,27 @@ func main() {
 	model := getModel(db)
 	clients := getClients()
 	var wg sync.WaitGroup
-	for _, worker := range customWorkers {
+	colors := []string{
+		"\033[34m", // blue
+		"\033[37m", // white
+		"\033[32m", // green
+		"\033[33m", // yellow
+	}
+	for i, worker := range customWorkers {
 		wg.Add(1)
 		toolsPreset := tools.NewToolkitFromPreset(worker.GetToolsPreset())
-		r := runtime.NewRuntime(worker, model, toolsPreset, db, worker.GetTask() != nil)
+		auditLogger, err := runtime.NewWorkerLogger(fmt.Sprintf("worker_%d", i+1), colors[i%len(colors)], 10000)
+		if err != nil {
+			log.Fatalf("failed to create logger for worker %d: %v", i+1, err)
+		}
+		r := runtime.NewRuntime(worker, model, toolsPreset, db, worker.GetTask() != nil, auditLogger)
 		for _, client := range clients {
 			client.Subscribe(r)
 		}
-		go func() {
+		go func(rt *runtime.Runtime) {
 			defer wg.Done()
-			r.Start(context.Background())
-		}()
+			rt.Start(context.Background())
+		}(r)
 	}
 	log.Println("All runtimes started. Waiting for clients indefinitely...")
 	wg.Wait()

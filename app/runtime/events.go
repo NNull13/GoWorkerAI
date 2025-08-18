@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"GoWorkerAI/app/storage"
@@ -37,13 +36,13 @@ func (r *Runtime) SaveEventOnHistory(ctx context.Context, content string) error 
 
 func (r *Runtime) handleEvent(ev Event) {
 	msg := ev.HandlerFunc(r, ev)
-	log.Printf("🆕 New Event received: %s Task: %v\n", msg, ev.Task)
+	r.audits.Printf("🆕 New Event received: %s Task: %v\n", msg, ev.Task)
 }
 
 var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 	NewTask: func(r *Runtime, ev Event) string {
 		if ev.Task == nil {
-			log.Println("⚠️ NewTask called with nil task.")
+			r.audits.Println("⚠️ NewTask called with nil task.")
 			return NewTask
 		}
 
@@ -53,7 +52,7 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 		r.mu.Unlock()
 
 		if prevCancel != nil {
-			log.Println("🛑 Canceling current task before starting a new one.")
+			r.audits.Println("🛑 Canceling current task before starting a new one.")
 			prevCancel()
 		}
 
@@ -64,14 +63,14 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 		if worker != nil {
 			worker.SetTask(ev.Task)
 		} else {
-			log.Println("⚠️ No worker configured; task will not run.")
+			r.audits.Println("⚠️ No worker configured; task will not run.")
 		}
 		r.activeTask.Store(true)
 		r.mu.Unlock()
 
 		go func() {
 			if err := r.runTask(ctx); err != nil {
-				log.Printf("Error running task: %v", err)
+				r.audits.Printf("Error running task: %v", err)
 			}
 		}()
 
@@ -80,7 +79,7 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 
 	CancelTask: func(r *Runtime, ev Event) string {
 		if !r.activeTask.CompareAndSwap(true, false) {
-			log.Println("⚠️ No active task to cancel.")
+			r.audits.Println("⚠️ No active task to cancel.")
 			return CancelTask
 		}
 
@@ -88,7 +87,7 @@ var EventsHandlerFuncDefault = map[string]func(r *Runtime, ev Event) string{
 		r.StopRuntime()
 		r.mu.Unlock()
 
-		log.Println("🛑 Canceling active task.")
+		r.audits.Println("🛑 Canceling active task.")
 		return CancelTask
 	},
 }

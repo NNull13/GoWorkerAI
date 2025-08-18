@@ -96,12 +96,12 @@ func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, err
 	return false, fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
-func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Record) (string, error) {
+func (mc *LLMClient) GenerateSummary(ctx context.Context, auditLogs []string, history []storage.Record) (string, error) {
 	if len(history) == 0 {
 		return "Task not started yet, incomplete", nil
 	}
 
-	systemPrompt := `You will receive a flat history of task execution entries in this form (one per line):
+	systemPrompt := `You will receive a flat history of task execution entries in this form (one per line) and audit logs:
 	Role: <role> | Content: <text> | Tool: <tool-or-empty> | Step: <integer> | ID: <integer>
 	Your job: produce a compact, high-signal, strictly chronological timeline of the execution, enabling a separate 
 	evaluator to decide YES/NO readiness using this timeline if the task is complete
@@ -119,6 +119,11 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Reco
 			entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
 	}
 
+	content += "Here is the audit logs:"
+	for _, log := range auditLogs {
+		content += fmt.Sprintf("\n%s", log)
+	}
+
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: content},
@@ -134,7 +139,7 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, history []storage.Reco
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LLMClient) Process(ctx context.Context, messages []Message, toolkit map[string]tools.Tool,
+func (mc *LLMClient) Process(ctx context.Context, audit *log.Logger, messages []Message, toolkit map[string]tools.Tool,
 	taskID string, stepID int) (string, error) {
 	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
 	if err != nil {
@@ -143,7 +148,7 @@ func (mc *LLMClient) Process(ctx context.Context, messages []Message, toolkit ma
 
 	message := response.Choices[0].Message
 	for i := 0; i < 5; i++ {
-		newMessages := mc.handleToolCalls(ctx, toolkit, message.ToolCalls, taskID, stepID)
+		newMessages := mc.handleToolCalls(ctx, audit, toolkit, message.ToolCalls, taskID, stepID)
 		messages = append(messages, newMessages...)
 		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
 			return "", err
@@ -167,23 +172,23 @@ func (mc *LLMClient) Process(ctx context.Context, messages []Message, toolkit ma
 	return message.Content, nil
 }
 
-func (mc *LLMClient) handleToolCalls(ctx context.Context, toolkit map[string]tools.Tool,
+func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, toolkit map[string]tools.Tool,
 	toolCalls []toolCall, taskID string, stepID int) (messages []Message) {
 	messages = append(messages, Message{Role: "assistant", ToolCalls: toolCalls})
 
 	for i, call := range toolCalls {
-		log.Printf("▶️ Executing tool call %v: %v", i, call)
+		audit.Printf("▶️ Executing tool call %v: %v", i, call)
 		toolTask := tools.ToolTask{Key: call.Function.Name}
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
 		tool, exists := toolkit[toolTask.Key]
 		if !exists || tool.HandlerFunc == nil {
-			log.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
+			audit.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
 			continue
 		}
 
 		result, err := tool.HandlerFunc(toolTask)
 		if err != nil {
-			log.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
+			audit.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
 			result = err.Error()
 		}
 
