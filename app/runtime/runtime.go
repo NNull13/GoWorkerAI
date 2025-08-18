@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"log"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -154,60 +155,69 @@ func (r *Runtime) runTask(ctx context.Context) error {
 	}
 
 	taskID := task.ID.String()
-	r.audits.Printf("▶️ Starting task: %s\n", task.Task)
+	log.Printf("▶️ Starting task: %s", task.Task)
 
 	planText, err := r.model.Think(ctx, currentWorker.PromptPlan(currentWorker.TaskInformation()), 0.25, -1)
 	if err != nil {
 		r.audits.Printf("❌ Error generating initial plan: %v\n", err)
 		return err
 	}
-	r.audits.Printf("✅ Plan generated:\n%s\n", planText)
+	log.Printf("✅ Plan generated:\n%s\n", planText)
 
 	steps := utils.SplitPlanIntoSteps(planText)
 	if len(steps) == 0 {
-		r.audits.Println("⚠️ Could not split plan into steps, aborting.")
+		log.Println("⚠️ Could not split plan into steps, aborting.")
 		return nil
 	}
-	r.audits.Printf("✅ Detected %d step(s) in plan.\n", len(steps))
+	log.Printf("✅ Detected %d step(s) in plan.\n", len(steps))
 
 	var runningSummary string
 	for i, step := range steps {
-		ok, newSummary := r.runStepWithValidation(ctx, stepCtx{
+		stepData := stepCtx{
 			TaskID:      taskID,
 			Task:        step,
 			Index:       i,
 			Plan:        steps,
 			PrevSummary: runningSummary,
 			MaxAttempts: task.MaxIterations,
-		}, currentWorker, tk)
+		}
+		ok, newSummary := r.runStepWithValidation(ctx, stepData, currentWorker, tk)
 		if !ok {
 			r.audits.Printf("❌ Step %d could not be completed, continuing.\n", i+1)
 		}
 		runningSummary = newSummary
+
+		r.audits.file.Sync()
+		if r.validateTaskCompletion(ctx, stepData, planText) {
+			return nil
+		}
 	}
 
-	history, err := r.db.GetHistoryByTaskID(ctx, taskID, -1) //all steps
-	if err != nil {
-		r.audits.Printf("❌ Error final GetHistoryByTaskID: %s\n", err)
-	}
+	r.audits.Printf("🚧 Task is not fully completed according to validation: %s\n", task.Task)
+	r.audits.Close()
+	return nil
+}
 
-	auditLogs := r.audits.GetLastLogs(1000)
-
-	finalSummary, _ := r.model.GenerateSummary(ctx, auditLogs, history)
-	r.audits.Printf("✅ Final summary: %s\n", finalSummary)
+func (r *Runtime) validateTaskCompletion(ctx context.Context, stepData stepCtx, planText string) bool {
+	r.mu.RLock()
+	currentWorker := r.worker
+	auditLogs := r.audits.GetLastLogs(10000)
+	history, _ := r.db.GetHistoryByTaskID(ctx, stepData.TaskID, stepData.Index)
+	finalSummary, _ := r.model.GenerateSummary(ctx, stepData.Task, auditLogs, history)
 
 	finalOK, err := r.model.YesOrNo(ctx, currentWorker.PromptValidation(planText, finalSummary))
 	if err != nil {
 		r.audits.Printf("❌ Error in final validation: %v\n", err)
-		return err
+		return false
 	}
 
 	if finalOK {
-		r.audits.Printf("🎉 Task successfully completed: %s\n", task.Task)
+		r.audits.Printf("🎉 Task successfully completed: %s\n", stepData.Task)
+		return true
 	} else {
-		r.audits.Printf("🚧 Task is not fully completed according to validation: %s\n", task.Task)
+		r.audits.Printf("ℹ️ Task not fully completed yet, still working on it, next step")
+		return false
 	}
-	return nil
 }
 
 func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker workers.Interface,
@@ -221,8 +231,9 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 			return false, summary
 		default:
 		}
-
 		step := sc.Plan[sc.Index]
+
+		// todo: Maybe it would be good to check if is necessary to run the step
 		r.audits.Printf("▶️ Executing step %d (attempt %d): %s\n", sc.Index+1, attempt, step)
 
 		prompt := worker.PromptSegmentedStep(sc.Plan, sc.Index, summary, worker.GetPreamble())
@@ -235,7 +246,11 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 
 		r.audits.Printf("✅ Step %d response: %s", sc.Index+1, resp)
 
-		if summary, err = r.stepSummary(ctx, sc.TaskID, sc.Index); err != nil {
+		auditLogs := r.audits.GetLastLogs(10000)
+		history, _ := r.db.GetHistoryByTaskID(ctx, sc.TaskID, sc.Index)
+		summary, err = r.model.GenerateSummary(ctx, step, auditLogs, history)
+		if err != nil {
+			r.audits.Printf("❌ Error generating summary for step %d: %v\n", sc.Index+1, err)
 			continue
 		}
 
@@ -256,20 +271,6 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 	}
 
 	return false, summary
-}
-
-func (r *Runtime) stepSummary(ctx context.Context, taskID string, stepIdx int) (string, error) {
-	history, err := r.db.GetHistoryByTaskID(ctx, taskID, stepIdx)
-	if err != nil {
-		return "", err
-	}
-	if len(history) == 0 {
-		return "", nil
-	}
-
-	auditLogs := r.audits.GetLastLogs(1000)
-
-	return r.model.GenerateSummary(ctx, auditLogs, history)
 }
 
 func cloneToolkit(src map[string]tools.Tool) map[string]tools.Tool {

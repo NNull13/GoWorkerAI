@@ -96,16 +96,15 @@ func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, err
 	return false, fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
-func (mc *LLMClient) GenerateSummary(ctx context.Context, auditLogs []string, history []storage.Record) (string, error) {
-	if len(history) == 0 {
-		return "Task not started yet, incomplete", nil
-	}
-
-	systemPrompt := `You will receive a flat history of task execution entries in this form (one per line) and audit logs:
-	Role: <role> | Content: <text> | Tool: <tool-or-empty> | Step: <integer> | ID: <integer>
+func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, auditLogs []string,
+	history []storage.Record) (string, error) {
+	systemPrompt := `You will receive the task to be completed and a flat history of task execution entries in as a series of audit logs:
 	Your job: produce a compact, high-signal, strictly chronological timeline of the execution, enabling a separate 
 	evaluator to decide YES/NO readiness using this timeline if the task is complete
 	Rules for summary:
+	- Do not include the task itself in the summary.
+	- Do not include the audit logs in the summary.
+	- Only include in the timeline the executions that are relevant to the task.	
 	- Output ONLY a numbered list of entries.
 	- Start at 1 and increment by 1.
 	- Exactly one line per entry. No text before, between, or after entries.
@@ -113,17 +112,19 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, auditLogs []string, hi
 	- Required Output Format is:
 	"1. [Description of the first entry]\n2. [Description of the next entry]\n...\nN. [Final entry]\n".`
 
-	content := "Here is the history of task execution. Summarize it:"
-	for _, entry := range history {
-		content += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | Step: %d | ID: %d",
-			entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
-	}
-
-	content += "Here is the audit logs:"
+	content := "Here is the task:\n" + task + "\nHere is the audit logs:"
 	for _, log := range auditLogs {
 		content += fmt.Sprintf("\n%s", log)
 	}
 
+	if len(history) > 0 {
+		content = "Here is the history of task execution. Summarize it:"
+		for _, entry := range history {
+			content += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | Step: %d | ID: %d",
+				entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
+		}
+	}
+	
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: content},

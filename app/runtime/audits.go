@@ -10,8 +10,13 @@ import (
 	"sync"
 )
 
+const (
+	colorReset = "\033[0m"
+)
+
 type AuditLogger struct {
 	*log.Logger
+	file    *os.File
 	mu      sync.RWMutex
 	buf     []string
 	cap     int
@@ -20,13 +25,24 @@ type AuditLogger struct {
 	lineBuf bytes.Buffer
 }
 
-const (
-	colorReset = "\033[0m"
-)
-
 type colorWriter struct {
 	w     io.Writer
 	color string
+}
+
+func newLogger(audit *AuditLogger, worker, color string) (*log.Logger, *os.File, error) {
+	if err := os.MkdirAll("logs", 0o755); err != nil {
+		return nil, nil, err
+	}
+	file, err := os.OpenFile(filepath.Join("logs", fmt.Sprintf("%s.log", worker)),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, nil, err
+	}
+	cw := colorWriter{w: os.Stdout, color: color}
+	mw := io.MultiWriter(cw, file, audit)
+	logger := log.New(mw, fmt.Sprintf("[%s] ", worker), log.LstdFlags)
+	return logger, file, nil
 }
 
 func NewWorkerLogger(worker, color string, capacity int) (*AuditLogger, error) {
@@ -37,19 +53,20 @@ func NewWorkerLogger(worker, color string, capacity int) (*AuditLogger, error) {
 		buf: make([]string, capacity),
 		cap: capacity,
 	}
-
-	if err := os.MkdirAll("logs", 0o755); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(filepath.Join("logs", fmt.Sprintf("%s.log", worker)), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logger, file, err := newLogger(audit, worker, color)
 	if err != nil {
 		return nil, err
 	}
-	cw := colorWriter{w: os.Stdout, color: color}
-	mw := io.MultiWriter(cw, file, audit)
-	logger := log.New(mw, fmt.Sprintf("[%s] ", worker), log.LstdFlags)
 	audit.Logger = logger
+	audit.file = file
 	return audit, nil
+}
+
+func (a *AuditLogger) Close() error {
+	if a.file != nil {
+		return a.file.Close()
+	}
+	return nil
 }
 
 func (cw colorWriter) Write(p []byte) (int, error) {
@@ -90,6 +107,18 @@ func (a *AuditLogger) push(s string) {
 	a.start = (a.start + 1) % a.cap
 }
 
+func (a *AuditLogger) Printf(text string, v ...any) {
+	text = fmt.Sprintf(text, v...)
+	a.Write([]byte(text))
+	a.Logger.Print(text)
+}
+
+func (a *AuditLogger) Print(v ...any) {
+	text := fmt.Sprint(v...)
+	a.Write([]byte(text))
+	a.Logger.Print(text)
+}
+
 func (a *AuditLogger) GetLastLogs(n int) []string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -103,4 +132,22 @@ func (a *AuditLogger) GetLastLogs(n int) []string {
 		out = append(out, a.buf[pos])
 	}
 	return out
+}
+
+func (a *AuditLogger) ClearBuffer() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.start = 0
+	a.size = 0
+	a.buf = make([]string, a.cap)
+	a.lineBuf.Reset()
+	a.ClearFile()
+}
+
+func (a *AuditLogger) ClearFile() error {
+	if a.file == nil {
+		return nil
+	}
+	// Truncar a 0
+	return a.file.Truncate(0)
 }

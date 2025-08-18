@@ -29,8 +29,7 @@ GoWorkerAI is an AI-powered worker builder in Go. It aims to help developers aut
 Set environment variables to customize the model client:
 
 - `LLM_BASE_URL` – base URL for the LLM API (default `http://localhost:1234`)
-- `LLM_MODEL` – model name used for text generation
-- `LLM_EMBEDDINGS_MODEL` – embeddings model name
+- `LLM_MODEL` – model name used for text generation (default `openai/gpt-oss-20b`)
 
 ---
 

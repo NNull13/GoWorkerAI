@@ -11,9 +11,8 @@ import (
 
 type Coder struct {
 	Worker
-	Language   string
-	CodeStyles []string
-	Tests      bool
+	Language string
+	Tests    bool
 }
 
 type coderInfo struct {
@@ -23,7 +22,7 @@ type coderInfo struct {
 	Tests      bool     `json:"tests,omitempty"`
 }
 
-func NewCoder(language, task, toolPreset string, codeStyles, acceptConditions, rules []string, maxIterations int) *Coder {
+func NewCoder(language, task, toolPreset string, rules, acceptConditions []string, maxIterations int) *Coder {
 	return &Coder{
 		Worker: Worker{
 			Task: &Task{
@@ -35,8 +34,7 @@ func NewCoder(language, task, toolPreset string, codeStyles, acceptConditions, r
 			ToolsPreset: toolPreset,
 			Rules:       rules,
 		},
-		Language:   language,
-		CodeStyles: codeStyles,
+		Language: language,
 	}
 }
 
@@ -48,7 +46,6 @@ func (c *Coder) buildCoderInfo() coderInfo {
 	return coderInfo{
 		workerInfo: base,
 		Language:   c.Language,
-		CodeStyles: append([]string(nil), c.CodeStyles...),
 		Tests:      c.Tests,
 	}
 }
@@ -60,7 +57,7 @@ func (c *Coder) TaskInformation() string {
 
 func (c *Coder) GetPreamble() string {
 	var sb strings.Builder
-	sb.WriteString(strings.Join([]string{
+	preamble := []string{
 		"You are an expert software engineer and careful editor.",
 		"Goals:",
 		"- Write correct, minimal, maintainable code that compiles and runs.",
@@ -71,7 +68,10 @@ func (c *Coder) GetPreamble() string {
 		"- Deterministic output. No filler text, no extra commentary.",
 		"- If you are unsure, choose the safest, reversible change.",
 		"- Keep diffs minimal; do not rewrite unrelated code.",
-	}, "\n"))
+	}
+	preamble = append(preamble, c.Rules...)
+
+	sb.WriteString(strings.Join(preamble, "\n"))
 	return sb.String()
 }
 

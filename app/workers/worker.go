@@ -91,13 +91,16 @@ func (w *Worker) buildWorkerInfo() workerInfo {
 
 func (w *Worker) GetPreamble() string {
 	var sb strings.Builder
-	sb.WriteString(strings.Join([]string{
+	preamble := []string{
 		"You are the best assistant for any task. All tasks are important.",
 		"Goals:",
 		"- Complete the task as quickly as possible.",
 		"- Complete the task without errors.",
 		"- Complete the task without breaking any rules.",
-	}, "\n"))
+	}
+	preamble = append(preamble, w.Rules...)
+	sb.WriteString(strings.Join(preamble, "\n"))
+
 	return sb.String()
 }
 

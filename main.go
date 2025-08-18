@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/tools"
@@ -26,7 +27,8 @@ func main() {
 	for i, worker := range customWorkers {
 		wg.Add(1)
 		toolsPreset := tools.NewToolkitFromPreset(worker.GetToolsPreset())
-		auditLogger, err := runtime.NewWorkerLogger(fmt.Sprintf("worker_%d", i+1), colors[i%len(colors)], 10000)
+		auditLogger, err := runtime.NewWorkerLogger(fmt.Sprintf("worker_%d_%d", i, time.Now().Unix()),
+			colors[i%len(colors)], 10000)
 		if err != nil {
 			log.Fatalf("failed to create logger for worker %d: %v", i+1, err)
 		}
@@ -41,4 +43,5 @@ func main() {
 	}
 	log.Println("All runtimes started. Waiting for clients indefinitely...")
 	wg.Wait()
+	return
 }
