@@ -1,8 +1,14 @@
 package tools
 
+import (
+	"errors"
+	"log"
+
+	"GoWorkerAI/app/utils"
+)
+
 const (
-	approve_plan         = "approve_plan"
-	reject_plan          = "reject_plan"
+	true_or_false        = "true_or_false"
 	write_file           = "write_file"
 	read_file            = "read_file"
 	delete_file          = "delete_file"
@@ -49,33 +55,24 @@ type ToolTask struct {
 }
 
 var allTools = map[string]Tool{
-	approve_plan: {
-		Name:        approve_plan,
-		Description: "Approve the proposed plan/step.",
+	true_or_false: {
+		Name:        "true_or_false",
+		Description: "Binary decision with a brief reason.",
 		Parameters: Parameter{
 			Type: "object",
 			Properties: map[string]any{
+				"answer": map[string]any{
+					"type": "string",
+					"enum": []string{"true", "false"},
+				},
 				"reason": map[string]any{
-					"type":        "string",
-					"description": "Brief reason for approving the plan/step.",
+					"type":      "string",
+					"maxLength": 333,
 				},
 			},
-			Required: []string{"reason"},
+			Required: []string{"answer", "reason"},
 		},
-	},
-	reject_plan: {
-		Name:        reject_plan,
-		Description: "Reject the proposed plan/step.",
-		Parameters: Parameter{
-			Type: "object",
-			Properties: map[string]any{
-				"reason": map[string]any{
-					"type":        "string",
-					"description": "Brief reason for rejecting the plan/step.",
-				},
-			},
-			Required: []string{"reason"},
-		},
+		HandlerFunc: executeReviewerAction,
 	},
 	write_file: {
 		Name:        write_file,
@@ -253,7 +250,7 @@ var allTools = map[string]Tool{
 			},
 			Required: []string{"url"},
 		},
-		HandlerFunc: fetchHTMLContent,
+		HandlerFunc: executeWebAction,
 	},
 	extract_links_html: {
 		Name:        extract_links_html,
@@ -272,7 +269,7 @@ var allTools = map[string]Tool{
 			},
 			Required: []string{"html"},
 		},
-		HandlerFunc: extractLinks,
+		HandlerFunc: executeWebAction,
 	},
 	extract_text_content: {
 		Name:        extract_text_content,
@@ -291,7 +288,7 @@ var allTools = map[string]Tool{
 			},
 			Required: []string{"html"},
 		},
-		HandlerFunc: extractTextContent,
+		HandlerFunc: executeWebAction,
 	},
 	extract_meta_tags: {
 		Name:        extract_meta_tags,
@@ -310,7 +307,7 @@ var allTools = map[string]Tool{
 			},
 			Required: []string{"html"},
 		},
-		HandlerFunc: extractMetaTags,
+		HandlerFunc: executeWebAction,
 	},
 }
 
@@ -318,8 +315,7 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 	switch preset {
 	case PresetPlanReviewer:
 		return pick(
-			approve_plan,
-			reject_plan,
+			true_or_false,
 		)
 	case PresetMinimal:
 		return pick(
@@ -390,4 +386,17 @@ func pick(names ...string) map[string]Tool {
 		}
 	}
 	return m
+}
+
+func withParsed[T any](params any, op string, f func(T) (string, error)) (string, error) {
+	v, err := utils.CastAny[T](params)
+	if err != nil {
+		log.Printf("❌ Error parsing %s action: %v\n", op, err)
+		return "", err
+	}
+	if v == nil {
+		log.Printf("❌ %s action is nil\n", op)
+		return "", errors.New("action is nil")
+	}
+	return f(*v)
 }

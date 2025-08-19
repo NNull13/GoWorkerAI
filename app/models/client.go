@@ -54,12 +54,10 @@ func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, error) {
+func (mc *LLMClient) TrueOrFalse(ctx context.Context, messages []Message) (bool, string, error) {
 	sys := Message{
-		Role: "system",
-		Content: `You must make a binary decision by calling just ONE tool:
-		- "approve_plan"  (when the answer is TRUE)
-		- "reject_plan"   (when the answer is FASLE)`,
+		Role:    "system",
+		Content: `Call only the tool true_or_false. Always return true or false and a brief reason (≤333 characters) of your decision.`,
 	}
 
 	msgs := make([]Message, 0, len(messages)+1) // +1 for system message
@@ -69,7 +67,7 @@ func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, err
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
 		if resp == nil || len(resp.Choices) == 0 {
 			continue
@@ -77,23 +75,31 @@ func (mc *LLMClient) YesOrNo(ctx context.Context, messages []Message) (bool, err
 
 		msg := resp.Choices[0].Message
 		if len(msg.ToolCalls) == 0 {
-			log.Printf("YesOrNo attempt %d: model returned no tool call, content=%q", attempt, msg.Content)
+			log.Printf("TrueOrFalse attempt %d: model returned no tool call, content=%q", attempt, msg.Content)
 			continue
 		}
 
-		name := msg.ToolCalls[0].Function.Name
-		switch name {
-		case "approve_plan":
-			return true, nil
-		case "reject_plan":
-			return false, nil
-		default:
-			log.Printf("🤔 Unexpected answer: %+v", msg)
+		toolTask := tools.ToolTask{Key: msg.ToolCalls[0].Function.Name}
+		toolTask.Parameters, _ = utils.ParseArguments(msg.ToolCalls[0].Function.Arguments)
+		funcTool, _ := toolsPreset[toolTask.Key]
+		if funcTool.HandlerFunc != nil {
+			var result string
+			result, err = toolsPreset[toolTask.Key].HandlerFunc(toolTask)
+			switch {
+			case err != nil:
+				if errors.Is(err, tools.ErrorRejected) {
+					return false, result, nil
+				}
+				log.Printf("TrueOrFalse attempt %d: model returned tool call error: %s", attempt, err)
+				continue
+			default: //success
+				return true, result, nil
+			}
 		}
 
 	}
 
-	return false, fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
+	return false, "", fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
 func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, auditLogs []string,
@@ -124,7 +130,7 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, auditLogs
 				entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
 		}
 	}
-	
+
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: content},

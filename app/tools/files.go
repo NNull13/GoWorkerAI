@@ -18,6 +18,63 @@ var (
 	workerFolder = os.Getenv("WORKER_FOLDER")
 )
 
+func executeFileAction(action ToolTask) (string, error) {
+	h, ok := fileDispatch[action.Key]
+	if !ok {
+		log.Printf("❌ Unknown tool key: %s\n", action.Key)
+		return "", fmt.Errorf("unknown tool key: %s", action.Key)
+	}
+	return h(action.Parameters)
+}
+
+var fileDispatch = map[string]func(any) (string, error){
+	write_file: func(p any) (string, error) {
+		return withParsed[FileAction](p, write_file, func(fa FileAction) (string, error) {
+			return writeToFile("", fa.FilePath, fa.Content)
+		})
+	},
+	read_file: func(p any) (string, error) {
+		return withParsed[FileAction](p, read_file, func(fa FileAction) (string, error) {
+			return readFile("", fa.FilePath)
+		})
+	},
+	delete_file: func(p any) (string, error) {
+		return withParsed[FileAction](p, delete_file, func(fa FileAction) (string, error) {
+			return deleteFile("", fa.FilePath)
+		})
+	},
+	list_files: func(p any) (string, error) {
+		return withParsed[FileAction](p, list_files, func(fa FileAction) (string, error) {
+			return listFiles(fa.Directory)
+		})
+	},
+	copy_file: func(p any) (string, error) {
+		return withParsed[CopyAction](p, copy_file, func(ca CopyAction) (string, error) {
+			return copyFileDirectoryInternal(ca.Source, ca.Destination)
+		})
+	},
+	move_file: func(p any) (string, error) {
+		return withParsed[MoveAction](p, move_file, func(ma MoveAction) (string, error) {
+			return moveFile("", ma.Source, ma.Destination)
+		})
+	},
+	append_file: func(p any) (string, error) {
+		return withParsed[AppendAction](p, append_file, func(aa AppendAction) (string, error) {
+			return appendToFile("", aa.FilePath, aa.Content)
+		})
+	},
+	search_file: func(p any) (string, error) {
+		return withParsed[SearchAction](p, search_file, func(sa SearchAction) (string, error) {
+			return searchInFileOrDir("", sa.FilePath, sa.Pattern, sa.Recursive)
+		})
+	},
+	create_directory: func(p any) (string, error) {
+		return withParsed[CreateDirectoryAction](p, create_directory, func(cda CreateDirectoryAction) (string, error) {
+			return createDirectory("", cda.DirectoryPath)
+		})
+	},
+}
+
 func getRoot() (string, error) {
 	if workerFolder == "" {
 		return "", nil
@@ -81,76 +138,6 @@ func safeJoin(path string) (string, error) {
 func denyIfNoRoot() error {
 	_, err := getRoot()
 	return err
-}
-
-func withParsed[T any](params any, op string, f func(T) (string, error)) (string, error) {
-	v, err := utils.CastAny[T](params)
-	if err != nil {
-		log.Printf("❌ Error parsing %s action: %v\n", op, err)
-		return "", err
-	}
-	if v == nil {
-		log.Printf("❌ %s action is nil\n", op)
-		return "", errors.New("action is nil")
-	}
-	return f(*v)
-}
-
-var fileDispatch = map[string]func(any) (string, error){
-	write_file: func(p any) (string, error) {
-		return withParsed[FileAction](p, "write_file", func(fa FileAction) (string, error) {
-			return writeToFile("", fa.FilePath, fa.Content)
-		})
-	},
-	read_file: func(p any) (string, error) {
-		return withParsed[FileAction](p, "read_file", func(fa FileAction) (string, error) {
-			return readFile("", fa.FilePath)
-		})
-	},
-	delete_file: func(p any) (string, error) {
-		return withParsed[FileAction](p, "delete_file", func(fa FileAction) (string, error) {
-			return deleteFile("", fa.FilePath)
-		})
-	},
-	list_files: func(p any) (string, error) {
-		return withParsed[FileAction](p, "list_files", func(fa FileAction) (string, error) {
-			return listFiles(fa.Directory)
-		})
-	},
-	copy_file: func(p any) (string, error) {
-		return withParsed[CopyAction](p, "copy_file", func(ca CopyAction) (string, error) {
-			return copyFileDirectoryInternal(ca.Source, ca.Destination)
-		})
-	},
-	move_file: func(p any) (string, error) {
-		return withParsed[MoveAction](p, "move_file", func(ma MoveAction) (string, error) {
-			return moveFile("", ma.Source, ma.Destination)
-		})
-	},
-	append_file: func(p any) (string, error) {
-		return withParsed[AppendAction](p, "append_file", func(aa AppendAction) (string, error) {
-			return appendToFile("", aa.FilePath, aa.Content)
-		})
-	},
-	search_file: func(p any) (string, error) {
-		return withParsed[SearchAction](p, "search_file", func(sa SearchAction) (string, error) {
-			return searchInFileOrDir("", sa.FilePath, sa.Pattern, sa.Recursive)
-		})
-	},
-	create_directory: func(p any) (string, error) {
-		return withParsed[CreateDirectoryAction](p, "create_directory", func(cda CreateDirectoryAction) (string, error) {
-			return createDirectory("", cda.DirectoryPath)
-		})
-	},
-}
-
-func executeFileAction(action ToolTask) (string, error) {
-	h, ok := fileDispatch[action.Key]
-	if !ok {
-		log.Printf("❌ Unknown tool key: %s\n", action.Key)
-		return "", fmt.Errorf("unknown tool key: %s", action.Key)
-	}
-	return h(action.Parameters)
 }
 
 func writeToFile(_ string, filename, content string) (string, error) {

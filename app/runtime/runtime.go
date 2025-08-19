@@ -205,17 +205,17 @@ func (r *Runtime) validateTaskCompletion(ctx context.Context, stepData stepCtx, 
 	history, _ := r.db.GetHistoryByTaskID(ctx, stepData.TaskID, stepData.Index)
 	finalSummary, _ := r.model.GenerateSummary(ctx, stepData.Task, auditLogs, history)
 
-	finalOK, err := r.model.YesOrNo(ctx, currentWorker.PromptValidation(planText, finalSummary))
+	finalOK, reason, err := r.model.TrueOrFalse(ctx, currentWorker.PromptValidation(planText, finalSummary))
 	if err != nil {
 		r.audits.Printf("❌ Error in final validation: %v\n", err)
 		return false
 	}
 
 	if finalOK {
-		r.audits.Printf("🎉 Task successfully completed: %s\n", stepData.Task)
+		r.audits.Printf("🎉 Task successfully completed: \ntask:%s\nreason:%s", stepData.Task, reason)
 		return true
 	} else {
-		r.audits.Printf("ℹ️ Task not fully completed yet, still working on it, next step")
+		r.audits.Printf("ℹ️ Task not fully completed yet, reason: %s", reason)
 		return false
 	}
 }
@@ -256,18 +256,18 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 
 		r.audits.Printf("ℹ️ Current step %d summary: %s\n", sc.Index+1, summary)
 
-		ok, err := r.model.YesOrNo(ctx, worker.PromptValidation(sc.Task, summary))
+		ok, reason, err := r.model.TrueOrFalse(ctx, worker.PromptValidation(sc.Task, summary))
 		if err != nil {
 			r.audits.Printf("❌ Error validating step %d (LLM): %v\n", sc.Index+1, err)
 			continue
 		}
 
 		if ok {
-			r.audits.Printf("✅ Step %d completed, task: %s\n", sc.Index+1, sc.Task)
+			r.audits.Printf("✅ Step %d completed, task: %s\n, reason: %s", sc.Index+1, sc.Task, reason)
 			return true, summary
+		} else {
+			r.audits.Printf("❌ Step %d not completed, task: %s\n, reason: %s", sc.Index+1, sc.Task, reason)
 		}
-
-		r.audits.Printf("❌ Step %d not completed, task: %s\n", sc.Index+1, sc.Task)
 	}
 
 	return false, summary

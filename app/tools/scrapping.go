@@ -6,168 +6,208 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
-
-	"GoWorkerAI/app/utils"
 )
 
-func fetchHTMLContent(task ToolTask) (string, error) {
-	action, err := utils.CastAny[ExtractAction](task.Parameters)
-	if err != nil || action.URL == "" {
+const maxFetchSize = 5 << 20
+
+var httpClient = &http.Client{Timeout: 20 * time.Second}
+
+func executeWebAction(action ToolTask) (string, error) {
+	h, ok := webDispatch[action.Key]
+	if !ok {
+		log.Printf("❌ Unknown tool key: %s\n", action.Key)
+		return "", fmt.Errorf("unknown tool key: %s", action.Key)
+	}
+	return h(action.Parameters)
+}
+
+var webDispatch = map[string]func(any) (string, error){
+	fetch_html_content: func(p any) (string, error) {
+		return withParsed[ExtractAction](p, fetch_html_content, func(a ExtractAction) (string, error) {
+			return fetchHTMLContent(a)
+		})
+	},
+	extract_links_html: func(p any) (string, error) {
+		return withParsed[ExtractAction](p, extract_links_html, func(a ExtractAction) (string, error) {
+			return extractLinks(a)
+		})
+	},
+	extract_text_content: func(p any) (string, error) {
+		return withParsed[ExtractAction](p, extract_text_content, func(a ExtractAction) (string, error) {
+			return extractTextContent(a)
+		})
+	},
+	extract_meta_tags: func(p any) (string, error) {
+		return withParsed[ExtractAction](p, extract_meta_tags, func(a ExtractAction) (string, error) {
+			return extractMetaTags(a)
+		})
+	},
+}
+
+func fetchHTMLContent(a ExtractAction) (string, error) {
+	if a.URL == "" {
 		return "", errors.New("invalid parameters: 'url' is required")
 	}
+	u, err := url.Parse(a.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("invalid url: %s", a.URL)
+	}
 
-	resp, err := http.Get(action.URL)
+	req, err := http.NewRequest(http.MethodGet, a.URL, nil)
 	if err != nil {
-		log.Printf("❌ Error fetching URL content %s: %v\n", action.URL, err)
+		return "", err
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("❌ Error fetching URL content %s: %v\n", a.URL, err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("⚠️ URL %s returned status code: %d\n", action.URL, resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("⚠️ URL %s returned status code: %d\n", a.URL, resp.StatusCode)
 		return "", fmt.Errorf("failed to fetch URL content: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	limited := io.LimitReader(resp.Body, maxFetchSize)
+	body, err := io.ReadAll(limited)
 	if err != nil {
-		log.Printf("❌ Error reading content from URL %s: %v\n", action.URL, err)
+		log.Printf("❌ Error reading content from URL %s: %v\n", a.URL, err)
 		return "", err
 	}
 
-	contentStr := string(body)
-	if action.FilePath != "" {
-		if _, writeErr := writeToFile("", action.FilePath, contentStr); writeErr != nil {
-			log.Printf("❌ Error writing fetched HTML to file: %v\n", writeErr)
-			return "", writeErr
+	content := string(body)
+	if a.FilePath != "" {
+		if _, err := writeToFile("", a.FilePath, content); err != nil {
+			log.Printf("❌ Error writing fetched HTML to file: %v\n", err)
+			return "", err
 		}
-		log.Printf("✅ Fetched HTML saved to file: %s\n", action.FilePath)
+		log.Printf("✅ Fetched HTML saved to file: %s\n", a.FilePath)
 	}
-
-	return contentStr, nil
+	return content, nil
 }
 
-func extractLinks(task ToolTask) (string, error) {
-	action, err := utils.CastAny[ExtractAction](task.Parameters)
-	if err != nil || action.HTML == "" {
+func extractLinks(a ExtractAction) (string, error) {
+	if strings.TrimSpace(a.HTML) == "" {
 		return "", errors.New("invalid parameters: 'html' is required")
 	}
-
-	doc, err := html.Parse(strings.NewReader(action.HTML))
+	doc, err := parseHTML(a.HTML)
 	if err != nil {
-		log.Printf("❌ Error parsing HTML content: %v\n", err)
 		return "", err
 	}
 
 	var links []string
-	var extract func(*html.Node)
-	extract = func(n *html.Node) {
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "a" {
 			for _, attr := range n.Attr {
-				if attr.Key == "href" {
+				if attr.Key == "href" && attr.Val != "" {
 					links = append(links, attr.Val)
 				}
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			extract(c)
+			walk(c)
 		}
 	}
-	extract(doc)
+	walk(doc)
 
-	linksStr := strings.Join(links, " ")
+	out := strings.Join(links, " ")
 	log.Printf("✅ Successfully extracted %d links\n", len(links))
-
-	if action.FilePath != "" {
-		return writeToFile("", action.FilePath, linksStr)
+	if a.FilePath != "" {
+		return writeToFile("", a.FilePath, out)
 	}
-
-	return linksStr, nil
+	return out, nil
 }
 
-func extractTextContent(task ToolTask) (string, error) {
-	action, err := utils.CastAny[ExtractAction](task.Parameters)
-	if err != nil || action.HTML == "" {
+func extractTextContent(a ExtractAction) (string, error) {
+	if strings.TrimSpace(a.HTML) == "" {
 		return "", errors.New("invalid parameters: 'html' is required")
 	}
-
-	doc, err := html.Parse(strings.NewReader(action.HTML))
+	doc, err := parseHTML(a.HTML)
 	if err != nil {
-		log.Printf("❌ Error parsing HTML content: %v\n", err)
 		return "", err
 	}
 
-	var textContent []string
-	var extractText func(*html.Node)
-	extractText = func(n *html.Node) {
+	var parts []string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
 		if n.Type == html.TextNode {
-			trimmed := strings.TrimSpace(n.Data)
-			if len(trimmed) > 0 {
-				textContent = append(textContent, trimmed)
+			t := strings.TrimSpace(n.Data)
+			if t != "" {
+				parts = append(parts, t)
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			extractText(c)
+			walk(c)
 		}
 	}
-	extractText(doc)
+	walk(doc)
 
-	result := strings.Join(textContent, " ")
-	log.Printf("✅ Successfully extracted %d text blocks\n", len(textContent))
-
-	if action.FilePath != "" {
-		return writeToFile("", action.FilePath, result)
+	out := strings.Join(parts, " ")
+	log.Printf("✅ Successfully extracted %d text blocks\n", len(parts))
+	if a.FilePath != "" {
+		return writeToFile("", a.FilePath, out)
 	}
-
-	return result, nil
+	return out, nil
 }
 
-func extractMetaTags(task ToolTask) (string, error) {
-	action, err := utils.CastAny[ExtractAction](task.Parameters)
-	if err != nil || action.HTML == "" {
+func extractMetaTags(a ExtractAction) (string, error) {
+	if strings.TrimSpace(a.HTML) == "" {
 		return "", errors.New("invalid parameters: 'html' is required")
 	}
-
-	doc, err := html.Parse(strings.NewReader(action.HTML))
+	doc, err := parseHTML(a.HTML)
 	if err != nil {
-		log.Printf("❌ Error parsing HTML content: %v\n", err)
 		return "", err
 	}
 
-	metaData := make(map[string]string)
-	var extract func(*html.Node)
-	extract = func(n *html.Node) {
-		if n.Type == html.ElementNode && (n.Data == "meta" || n.Data == "title") {
+	meta := map[string]string{}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
 			if n.Data == "title" && n.FirstChild != nil {
-				metaData["title"] = n.FirstChild.Data
-			} else if n.Data == "meta" {
+				meta["title"] = strings.TrimSpace(n.FirstChild.Data)
+			}
+			if n.Data == "meta" {
 				var name, content string
-				for _, attr := range n.Attr {
-					if attr.Key == "name" {
-						name = attr.Val
-					} else if attr.Key == "content" {
-						content = attr.Val
+				for _, a := range n.Attr {
+					if a.Key == "name" {
+						name = a.Val
+					}
+					if a.Key == "content" {
+						content = a.Val
 					}
 				}
 				if name != "" {
-					metaData[name] = content
+					meta[name] = content
 				}
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			extract(c)
+			walk(c)
 		}
 	}
-	extract(doc)
+	walk(doc)
 
-	result := fmt.Sprintf("%v", metaData)
-	log.Printf("✅ Successfully extracted %d meta tags\n", len(metaData))
-
-	if action.FilePath != "" {
-		return writeToFile("", action.FilePath, result)
+	out := fmt.Sprintf("%v", meta)
+	log.Printf("✅ Successfully extracted %d meta tags\n", len(meta))
+	if a.FilePath != "" {
+		return writeToFile("", a.FilePath, out)
 	}
+	return out, nil
+}
 
-	return result, nil
+func parseHTML(s string) (*html.Node, error) {
+	doc, err := html.Parse(strings.NewReader(s))
+	if err != nil {
+		log.Printf("❌ Error parsing HTML content: %v\n", err)
+		return nil, err
+	}
+	return doc, nil
 }

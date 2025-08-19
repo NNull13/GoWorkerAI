@@ -11,7 +11,7 @@ import (
 type Interface interface {
 	Think(context.Context, []Message, float64, int) (string, error)
 	Process(context.Context, *log.Logger, []Message, map[string]tools.Tool, string, int) (string, error)
-	YesOrNo(context.Context, []Message) (bool, error)
+	TrueOrFalse(context.Context, []Message) (bool, string, error)
 	GenerateSummary(context.Context, string, []string, []storage.Record) (string, error)
 }
 

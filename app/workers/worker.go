@@ -172,13 +172,13 @@ func (w *Worker) PromptNextAction(plan, resume string) []models.Message {
 func (w *Worker) PromptValidation(plan, summary string) []models.Message {
 	sys := strings.Join([]string{
 		"You are a meticulous yet practical validator.",
-		"Goal: Decide if more work is REQUIRED to finish the task, based on the execution summary and the plan.",
+		"Goal: Decide if the worker can finish the current task/step, based on the execution summary and the plan.",
 		"Important:",
-		"- Answer `true` if further work is needed (incomplete, unclear, or incorrect).",
-		"- Answer `false` if the task is sufficiently complete and correct.",
+		"- Answer `false` if further work is needed (incomplete, unclear, or incorrect).",
+		"- Answer `true` if the task is sufficiently complete and correct.",
 		"Use LIMITED, CRITICAL JUDGMENT:",
 		"- You may make minor, reasonable assumptions only when strongly implied by the summary.",
-		"- Treat such links as ASSUMED and be conservative: if the assumption touches a critical output/correctness criterion, prefer `true`.",
+		"- Treat such links as ASSUMED and be conservative: if the assumption touches a critical output/correctness criterion, prefer `false`.",
 		"- Do NOT invent artifacts, IDs, results, or success states that are not implied.",
 		"Pass criteria (all must be satisfied or safely assumed without touching critical outputs):",
 		"- Each plan step is addressed with an explicit or strongly implied result.",
@@ -187,9 +187,9 @@ func (w *Worker) PromptValidation(plan, summary string) []models.Message {
 		"- Key outputs/artifacts exist with enough detail to be verifiable (IDs/URLs/files/status/counters).",
 		"- No contradictions.",
 		"Decision policy:",
-		"- If any critical gap, ambiguity, or error remains → `true` (more work needed).",
-		"- If all critical criteria are clearly met and only non-critical details are missing → `false`.",
-		"- When uncertain about critical completeness → `true`.",
+		"- If any critical gap, ambiguity, or error remains → `false` (more work needed).",
+		"- If all critical criteria are clearly met and only non-critical details are missing → `true`.",
+		"- When uncertain about critical completeness → `false`.",
 	}, "\n")
 
 	user := fmt.Sprintf(
