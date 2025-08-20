@@ -200,6 +200,7 @@ func (r *Runtime) runTask(ctx context.Context) error {
 
 func (r *Runtime) validateTaskCompletion(ctx context.Context, stepData stepCtx, planText string) bool {
 	r.mu.RLock()
+	defer r.mu.RUnlock()
 	currentWorker := r.worker
 	auditLogs := r.audits.GetLastLogs(10000)
 	history, _ := r.db.GetHistoryByTaskID(ctx, stepData.TaskID, stepData.Index)

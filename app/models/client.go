@@ -63,7 +63,7 @@ func (mc *LLMClient) TrueOrFalse(ctx context.Context, messages []Message) (bool,
 	msgs := make([]Message, 0, len(messages)+1) // +1 for system message
 	msgs = append(msgs, sys)
 	msgs = append(msgs, messages...)
-	toolsPreset := tools.NewToolkitFromPreset(tools.PresetPlanReviewer)
+	toolsPreset := tools.NewToolkitFromPreset(tools.PresetApprover)
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
 		if err != nil {

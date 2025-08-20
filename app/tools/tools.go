@@ -3,12 +3,28 @@ package tools
 import (
 	"errors"
 	"log"
+	"os"
 
 	"GoWorkerAI/app/utils"
 )
 
+// Presets
+const (
+	PresetApprover        = "approver"
+	PresetMinimal         = "minimal"
+	PresetReadOnly        = "readonly"
+	PresetFileOpsBasic    = "file_basic"
+	PresetFileOpsExtended = "file_extended"
+	PresetScraperBasic    = "scraper_basic"
+	PresetScraperFull     = "scraper_full"
+	PresetAll             = "all"
+	Custom                = "custom"
+)
+
+// Tools
 const (
 	true_or_false        = "true_or_false"
+	run_go_command       = "run_go_command"
 	write_file           = "write_file"
 	read_file            = "read_file"
 	delete_file          = "delete_file"
@@ -24,16 +40,8 @@ const (
 	extract_meta_tags    = "extract_meta_tags"
 )
 
-const (
-	PresetPlanReviewer    string = "plan_reviewer"
-	PresetMinimal         string = "minimal"
-	PresetReadOnly        string = "readonly"
-	PresetFileOpsBasic    string = "file_basic"
-	PresetFileOpsExtended string = "file_extended"
-	PresetScraperBasic    string = "scraper_basic"
-	PresetScraperFull     string = "scraper_full"
-	PresetAll             string = "all"
-	Custom                string = "custom"
+var (
+	workerFolder = os.Getenv("WORKER_FOLDER")
 )
 
 type Tool struct {
@@ -73,6 +81,21 @@ var allTools = map[string]Tool{
 			Required: []string{"answer", "reason"},
 		},
 		HandlerFunc: executeReviewerAction,
+	},
+	run_go_command: {
+		Name:        run_go_command,
+		Description: "Use this action to run only GO (Golang) commands in the terminal. One command at a time.",
+		Parameters: Parameter{
+			Type: "object",
+			Properties: map[string]any{
+				"command": map[string]any{
+					"type":        "string",
+					"description": "The command to run.",
+				},
+			},
+			Required: []string{"command"},
+		},
+		HandlerFunc: executeCommandAction,
 	},
 	write_file: {
 		Name:        write_file,
@@ -313,7 +336,7 @@ var allTools = map[string]Tool{
 
 func NewToolkitFromPreset(preset string) map[string]Tool {
 	switch preset {
-	case PresetPlanReviewer:
+	case PresetApprover:
 		return pick(
 			true_or_false,
 		)
@@ -335,6 +358,7 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 			append_file,
 			create_directory,
 			list_files,
+			run_go_command,
 		)
 	case PresetFileOpsExtended:
 		return pick(
@@ -347,6 +371,7 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 			move_file,
 			delete_file,
 			search_file,
+			run_go_command,
 		)
 	case PresetScraperBasic:
 		return pick(

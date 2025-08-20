@@ -30,6 +30,7 @@ Set environment variables to customize the model client:
 
 - `LLM_BASE_URL` – base URL for the LLM API (default `http://localhost:1234`)
 - `LLM_MODEL` – model name used for text generation (default `openai/gpt-oss-20b`)
+- `WORKER_FOLDER` – folder where the worker will work (default no restriction, recommended to be set)
 
 ---
 

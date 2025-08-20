@@ -14,10 +14,6 @@ import (
 	"GoWorkerAI/app/utils"
 )
 
-var (
-	workerFolder = os.Getenv("WORKER_FOLDER")
-)
-
 func executeFileAction(action ToolTask) (string, error) {
 	h, ok := fileDispatch[action.Key]
 	if !ok {
