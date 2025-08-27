@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/xlab/treeprint"
 )
@@ -78,36 +76,11 @@ func CastAny[T any](v any) (*T, error) {
 	return &result, nil
 }
 
-func SplitPlanIntoSteps(plan string) []string {
-	var steps []string
-	lines := strings.Split(plan, "\n")
-
-	// Matches:
-	// 1) "1. [desc]"         -> group 1
-	// 2) "1. desc"           -> group 2
-	// 3) "- desc" or "* desc"-> group 3
-	re := regexp.MustCompile(`^\s*(?:\d+\.\s*(?:\[(.*?)\]|(.+))|[-*]\s+(.+))\s*$`)
-
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		m := re.FindStringSubmatch(line)
-		if len(m) == 0 {
-			continue
-		}
-		// Pick the first non-empty capture among groups 1..3
-		var desc string
-		for _, g := range m[1:] {
-			if strings.TrimSpace(g) != "" {
-				desc = g
-				break
-			}
-		}
-		if desc != "" {
-			steps = append(steps, strings.TrimSpace(desc))
-		}
+func GetColors() []string {
+	return []string{
+		"\033[34m", // blue
+		"\033[37m", // white
+		"\033[32m", // green
+		"\033[33m", // yellow
 	}
-	return steps
 }

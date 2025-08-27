@@ -6,6 +6,7 @@ import (
 	"GoWorkerAI/app/clients"
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
+	"GoWorkerAI/app/tools"
 	"GoWorkerAI/app/workers"
 )
 
@@ -19,7 +20,7 @@ var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Golang",
 		"You are a Golang engineer. Build a small Golang application that demonstrates your skills by implementing three functions in a package (e.g., `utils`): ",
-		"file_basic", // toolPreset
+		tools.PresetFileOpsBasic, // toolPreset
 		[]string{
 			"Write the most clean and efficient code.",
 			"Use Go's best practices and idiomatic code.",
@@ -32,7 +33,6 @@ var customWorkers = []workers.Interface{
 			"Keep functions small, focused, and easy to read.",
 			"Ensure the code compiles, is idiomatic, and formatted. ",
 		}, //rules
-		[]string{}, // accept conditions
 		5,
 	),
 }

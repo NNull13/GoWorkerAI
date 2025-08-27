@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"sort"
 	"sync"
@@ -249,35 +248,13 @@ func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayl
 }
 
 func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
-	var err error
-	var response []byte
-	var status int
-	var generatedResponse ResponseLLM
-
-	for i := 0; i < maxRetries; i++ {
-		select {
-		case <-ctx.Done():
-			log.Println("🚨 Request canceled before execution")
-			return nil, ctx.Err()
-		default:
-			if err != nil {
-				time.Sleep(time.Duration(math.Pow(2, float64(i))) * 100 * time.Millisecond)
-			}
-			response, status, err = mc.restClient.Post(ctx, endpoint, payload, nil)
-			if err != nil {
-				log.Printf("⚠️ Attempt %d failed: HTTP %d | Response: %s | Error: %v | Payload %v",
-					i, status, string(response), err, payload)
-				continue
-			}
-
-			if err = json.Unmarshal(response, &generatedResponse); err != nil {
-				log.Printf("⚠️ Error parsing response: %v", err)
-				continue
-			}
-
-			return &generatedResponse, nil
+	respBytes, status, err := mc.restClient.Post(ctx, endpoint, payload, nil)
+	if err == nil && status >= 200 && status < 300 {
+		var out ResponseLLM
+		if uErr := json.Unmarshal(respBytes, &out); uErr != nil {
+			err = fmt.Errorf("unmarshal: %w", uErr)
 		}
+		return &out, nil
 	}
-
-	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, err)
+	return nil, fmt.Errorf("request failed: %w", maxRetries, err)
 }

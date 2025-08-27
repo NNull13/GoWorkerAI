@@ -60,14 +60,4 @@ Set environment variables to customize the model client:
 
 ---
 
-## 💖 Donations 
-
-This project is open-source and non-profit. if you find it helpful and would like to support, you’re welcome to contribute:
-
-- **solana wallet:** `NoName13.sol`
-- **ethereum wallet:** `NoName13.eth`
-- **bitcoin wallet:** `noname13.btc`
-
----
-
 ### crafted with ❤️ by NoName13

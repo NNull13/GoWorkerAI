@@ -10,12 +10,14 @@ import (
 	"GoWorkerAI/app/models"
 )
 
+const maxSteps = 20
+
 type Interface interface {
 	Base
 	PromptPlan(taskInformation string) []models.Message
 	PromptNextAction(plan, resume string) []models.Message
 	PromptValidation(plan, summary string) []models.Message
-	PromptSegmentedStep(steps []string, index int, summary, preamble string) []models.Message
+	PromptSegmentedStep(steps []string, index int, summary string, preamble []string) []models.Message
 	TaskInformation() string
 }
 
@@ -23,7 +25,7 @@ type Base interface {
 	SetTask(*Task)
 	GetTask() *Task
 	GetToolsPreset() string
-	GetPreamble() string
+	GetPreamble() []string
 }
 
 type Task struct {
@@ -40,14 +42,13 @@ type Worker struct {
 }
 
 type workerInfo struct {
-	ID               string   `json:"id,omitempty"`
-	MainTask         string   `json:"main_task,omitempty"`
-	AcceptConditions []string `json:"accept_conditions,omitempty"`
-	MaxIterations    int      `json:"max_iterations,omitempty"`
-	ToolsPreset      string   `json:"tools_preset,omitempty"`
-	Rules            []string `json:"rules,omitempty"`
-	Folder           string   `json:"folder,omitempty"`
-	LockFolder       bool     `json:"lock_folder,omitempty"`
+	ID            string   `json:"id,omitempty"`
+	MainTask      string   `json:"main_task,omitempty"`
+	MaxIterations int      `json:"max_iterations,omitempty"`
+	ToolsPreset   string   `json:"tools_preset,omitempty"`
+	Rules         []string `json:"rules,omitempty"`
+	Folder        string   `json:"folder,omitempty"`
+	LockFolder    bool     `json:"lock_folder,omitempty"`
 }
 
 func (w *Worker) SetTask(task *Task) {
@@ -83,25 +84,9 @@ func (w *Worker) buildWorkerInfo() workerInfo {
 	if w.Task != nil {
 		info.ID = w.Task.ID.String()
 		info.MainTask = w.Task.Task
-		info.AcceptConditions = append([]string(nil), w.Task.AcceptConditions...)
 		info.MaxIterations = w.Task.MaxIterations
 	}
 	return info
-}
-
-func (w *Worker) GetPreamble() string {
-	var sb strings.Builder
-	preamble := []string{
-		"You are the best assistant for any task. All tasks are important.",
-		"Goals:",
-		"- Complete the task as quickly as possible.",
-		"- Complete the task without errors.",
-		"- Complete the task without breaking any rules.",
-	}
-	preamble = append(preamble, w.Rules...)
-	sb.WriteString(strings.Join(preamble, "\n"))
-
-	return sb.String()
 }
 
 func (w *Worker) TaskInformation() string {
@@ -109,60 +94,52 @@ func (w *Worker) TaskInformation() string {
 	return string(taskInformation)
 }
 
-func planSystemPrompt(preamble string) string {
-	var rules []string
-	rules = append(rules,
-		"You are an expert strategic planner. Your role is to create a highly detailed, ",
-		"step-by-step plan for the task described below. The plan MUST adhere to the format exactly as specified.",
-		"HARD FORMAT RULES:",
+func planSystemPrompt(preamble []string) string {
+	core := []string{
+		"You are an expert strategic planner. Create a precise, step-by-step plan for the task described below.",
+		"Objectives:",
+		"- Deterministic output; no filler, no extra commentary.",
+		"- Prefer small, idempotent, verifiable steps.",
+		"- Follow the specified language and style when applicable.",
+		"- If information is missing, include explicit clarification or TODO steps.",
+		"CONTENT RULES:",
+		"- Steps must be actionable, testable, and as small as reasonably possible.",
+		"- If inputs are missing, include `[Request X from stakeholder]` or equivalent.",
+		"HARD OUTPUT FORMAT:",
 		"- Output ONLY a numbered list of steps.",
-		"- Required Output Format is:",
-		"`1. [Description of the first step]\n2. [Description of the next step]\n...\nN. [Final step]\n`.",
+		"- Format exactly as:",
+		"1. [First step]",
+		"2. [Next step]",
+		"...",
+		"N. [Final step]",
 		"- Start at 1 and increment by 1.",
 		"- Exactly one line per step. No text before, between, or after steps.",
-	)
-
-	rules = append(rules, fmt.Sprintf("- Max %d steps. No sub-steps, no explanations.", 20))
-
-	content := []string{
-		"CONTENT RULES:",
-		"- Steps must be actionable, verifiable, and as small as reasonably possible.",
-		"- If information is missing, include explicit clarification steps (e.g., `[Request X from stakeholder]`).",
+		fmt.Sprintf("- Max %d steps. No sub-steps, no explanations.", maxSteps),
 	}
 
-	var parts []string
-	if strings.TrimSpace(preamble) != "" {
-		parts = append(parts, strings.TrimSpace(preamble))
-	}
-	parts = append(parts, strings.Join(rules, "\n"))
-	parts = append(parts, strings.Join(content, "\n"))
-	return strings.Join(parts, "\n")
-}
-
-func (w *Worker) PromptPlan(taskInformation string) []models.Message {
-	sys := planSystemPrompt("") // no preamble
-	user := strings.Join([]string{
-		taskInformation,
-		"Generate the plan, strictly following the format rules.",
-	}, "\n\n")
-	return []models.Message{
-		{Role: "system", Content: sys},
-		{Role: "user", Content: user},
-	}
+	out := append(preamble, core...)
+	return strings.Join(out, "\n")
 }
 
 func (w *Worker) PromptNextAction(plan, resume string) []models.Message {
 	sys := strings.Join([]string{
-		"You are an AI worker executing a numbered plan. Given the plan and execution history, decide the single next immediate action.",
+		"You are an AI worker executing a numbered plan. Decide the single next immediate action.",
 		"RULES:",
-		"- Identify the lowest-numbered step that is not fully completed.",
-		"- If that step is already in progress, return the minimal next sub-action to advance it.",
-		"- No explanations or lists.",
+		"- Identify the lowest-numbered step not fully completed given the execution history.",
+		"- If that step is in progress, output the minimal next sub-action to advance it.",
+		"- If all steps are completed, output `DONE`.",
+		"- If the next action cannot proceed due to a concrete blocker, output `BLOCKED:<reason>`.",
+		"OUTPUT:",
+		"- If an action is possible, Return single atomic next action ",
+		"- No lists, no explanations, no code fences, no surrounding text.",
 	}, "\n")
+
 	user := fmt.Sprintf(
-		"Plan (numbered list):\n%s\n\nExecution History:\n%s\n\nReturn only the required output.",
-		plan, resume,
+		"Plan (numbered list):\n%s\n\nExecution History:\n%s\n\nReturn only one line as specified.",
+		strings.TrimSpace(plan),
+		strings.TrimSpace(resume),
 	)
+
 	return []models.Message{
 		{Role: "system", Content: sys},
 		{Role: "user", Content: user},
@@ -172,37 +149,36 @@ func (w *Worker) PromptNextAction(plan, resume string) []models.Message {
 func (w *Worker) PromptValidation(plan, summary string) []models.Message {
 	sys := strings.Join([]string{
 		"You are a meticulous yet practical validator.",
-		"Goal: Decide if the worker can finish the current task/step, based on the execution summary and the plan.",
-		"Important:",
-		"- Answer `false` if further work is needed (incomplete, unclear, or incorrect).",
-		"- Answer `true` if the task is sufficiently complete and correct.",
-		"Use LIMITED, CRITICAL JUDGMENT:",
-		"- You may make minor, reasonable assumptions only when strongly implied by the summary.",
-		"- Treat such links as ASSUMED and be conservative: if the assumption touches a critical output/correctness criterion, prefer `false`.",
-		"- Do NOT invent artifacts, IDs, results, or success states that are not implied.",
-		"Pass criteria (all must be satisfied or safely assumed without touching critical outputs):",
-		"- Each plan step is addressed with an explicit or strongly implied result.",
+		"Goal: Decide if the current task/step is sufficiently complete and correct based on the execution summary and the plan.",
+		"CRITERIA (all must be satisfied or safely assumed without touching critical outputs):",
+		"- The relevant plan step(s) are addressed with explicit or strongly implied results.",
 		"- Logical order respected or equivalently justified.",
-		"- No critical TODOs, UNKNOWNs, blockers, or unresolved retries.",
-		"- Key outputs/artifacts exist with enough detail to be verifiable (IDs/URLs/files/status/counters).",
+		"- No critical TODOs, UNKNOWNs, blockers, or unresolved tasks.",
+		"- Key outputs/artifacts exist and are verifiable.",
 		"- No contradictions.",
-		"Decision policy:",
-		"- If any critical gap, ambiguity, or error remains → `false` (more work needed).",
-		"- If all critical criteria are clearly met and only non-critical details are missing → `true`.",
-		"- When uncertain about critical completeness → `false`.",
+		"ASSUMPTIONS:",
+		"- Make minor, reasonable assumptions only when strongly implied by the summary.",
+		"- If an assumption touches correctness of critical outputs, prefer `false`.",
+		"DECISION POLICY:",
+		"- Any critical gap, ambiguity, or error → false.",
+		"- All critical criteria clearly met; only non-critical details missing → true.",
+		"OUTPUT:",
+		"- Return exactly `true` or `false` in lowercase, with no punctuation or extra text.",
 	}, "\n")
 
 	user := fmt.Sprintf(
-		"Plan:\n%s\n\nExecution Summary:\n%s\n\nHas the plan been fully and correctly executed?",
-		plan, summary,
+		"Plan:\n%s\n\nExecution Summary:\n%s\n\nReturn only `true` or `false`.",
+		strings.TrimSpace(plan),
+		strings.TrimSpace(summary),
 	)
+
 	return []models.Message{
 		{Role: "system", Content: sys},
 		{Role: "user", Content: user},
 	}
 }
 
-func (w *Worker) PromptSegmentedStep(steps []string, index int, summary, preamble string) []models.Message {
+func (w *Worker) PromptSegmentedStep(steps []string, index int, summary string, preamble []string) []models.Message {
 	if index < 0 || index >= len(steps) {
 		return nil
 	}
@@ -212,10 +188,12 @@ func (w *Worker) PromptSegmentedStep(steps []string, index int, summary, preambl
 
 	var sb strings.Builder
 
+	for _, text := range preamble {
+		sb.WriteString(text)
+	}
 	sb.WriteString(fmt.Sprintf("FOCUS TASK (%d/%d):\n", index, total))
 	sb.WriteString(stepText + "\n")
-
-	sb.WriteString(preamble + "\n")
+	sb.WriteString("RULE: Must use only the tools provided for the task")
 
 	if summary == "" {
 		sb.WriteString("\nCURRENT EXECUTION SUMMARY: not started\n")
@@ -228,4 +206,21 @@ func (w *Worker) PromptSegmentedStep(steps []string, index int, summary, preambl
 	systemMsg := models.Message{Role: "system", Content: sb.String()}
 	userMsg := models.Message{Role: "user", Content: steps[index]}
 	return []models.Message{systemMsg, userMsg}
+}
+
+func (w *Worker) PromptPlan(taskInformation string) []models.Message {
+	sys := planSystemPrompt(w.GetPreamble())
+	return []models.Message{
+		{Role: "system", Content: sys},
+		{Role: "user", Content: strings.TrimSpace(taskInformation)},
+	}
+}
+
+func (w *Worker) GetPreamble() []string {
+	base := []string{
+		"You are the best assistant for any task. All tasks are important.",
+		"Complete tasks quickly, without errors, and without breaking rules.",
+		"Prefer clear, verifiable, reversible steps.",
+	}
+	return append(base, w.Rules...)
 }

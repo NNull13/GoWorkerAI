@@ -26,7 +26,7 @@ func TestDoRequest(t *testing.T) {
 		return nil, errors.New("err")
 	})}}
 	r, _ := http.NewRequest("GET", "http://test", nil)
-	b, s, err := c.doRequest(context.Background(), r)
+	b, s, err := c.doRequestOnce(context.Background(), r)
 	if err == nil || s != 0 || len(b) != 0 {
 		t.Fail()
 	}

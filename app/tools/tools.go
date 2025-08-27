@@ -358,7 +358,7 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 			append_file,
 			create_directory,
 			list_files,
-			run_go_command,
+			delete_file,
 		)
 	case PresetFileOpsExtended:
 		return pick(

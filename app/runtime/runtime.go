@@ -3,7 +3,9 @@ package runtime
 import (
 	"context"
 	"log"
+	"os"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,7 +13,6 @@ import (
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/tools"
-	"GoWorkerAI/app/utils"
 	"GoWorkerAI/app/workers"
 )
 
@@ -53,6 +54,13 @@ func NewRuntime(w workers.Interface, m models.Interface, initial map[string]tool
 	return rt
 }
 
+func handlePanic(r *Runtime) {
+	if rec := recover(); rec != nil {
+		r.audits.Printf("❌ Panic recovered in runTask: %v\nStack trace:\n%s", rec, debug.Stack())
+	}
+	os.Exit(666)
+}
+
 func (r *Runtime) Start(ctx context.Context) {
 	runtimeCtx, runtimeCancel := context.WithCancel(ctx)
 	r.mu.Lock()
@@ -67,12 +75,7 @@ func (r *Runtime) Start(ctx context.Context) {
 		r.mu.Unlock()
 
 		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					r.audits.Printf("❌ Panic recovered in runTask: %v\nStack trace:\n%s", rec, debug.Stack())
-				}
-				r.StopRuntime()
-			}()
+			defer handlePanic(r)
 			if err := r.runTask(runtimeCtx); err != nil {
 				r.audits.Printf("Error running task: %v", err)
 			}
@@ -88,11 +91,7 @@ func (r *Runtime) Start(ctx context.Context) {
 				return
 			}
 			func() {
-				defer func() {
-					if rec := recover(); rec != nil {
-						r.audits.Printf("❌ Panic recovered in handleEvent: %v\nStack trace:\n%s", rec, debug.Stack())
-					}
-				}()
+				defer handlePanic(r)
 				r.handleEvent(ev)
 			}()
 		}
@@ -164,7 +163,7 @@ func (r *Runtime) runTask(ctx context.Context) error {
 	}
 	log.Printf("✅ Plan generated:\n%s\n", planText)
 
-	steps := utils.SplitPlanIntoSteps(planText)
+	steps := strings.Split(planText, "\n")
 	if len(steps) == 0 {
 		log.Println("⚠️ Could not split plan into steps, aborting.")
 		return nil

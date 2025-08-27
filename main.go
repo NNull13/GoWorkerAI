@@ -10,6 +10,7 @@ import (
 
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/tools"
+	"GoWorkerAI/app/utils"
 )
 
 func main() {
@@ -18,12 +19,7 @@ func main() {
 	model := getModel(db)
 	clients := getClients()
 	var wg sync.WaitGroup
-	colors := []string{
-		"\033[34m", // blue
-		"\033[37m", // white
-		"\033[32m", // green
-		"\033[33m", // yellow
-	}
+	colors := utils.GetColors()
 	for i, worker := range customWorkers {
 		wg.Add(1)
 		toolsPreset := tools.NewToolkitFromPreset(worker.GetToolsPreset())

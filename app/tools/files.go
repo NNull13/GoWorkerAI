@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"GoWorkerAI/app/utils"
 )
@@ -71,28 +72,42 @@ var fileDispatch = map[string]func(any) (string, error){
 	},
 }
 
+var (
+	rootOnce   sync.Once
+	cachedRoot string
+	rootErr    error
+)
+
 func getRoot() (string, error) {
-	if workerFolder == "" {
-		return "", nil
-	}
-	abs, err := filepath.Abs(workerFolder)
-	if err != nil {
-		return "", fmt.Errorf("cannot get absolute path of WORKER_FOLDER: %w", err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if mkErr := os.MkdirAll(abs, 0o755); mkErr != nil {
-				return "", fmt.Errorf("cannot create WORKER_FOLDER: %w", mkErr)
-			}
-		} else {
-			return "", fmt.Errorf("cannot stat WORKER_FOLDER: %w", err)
+	rootOnce.Do(func() {
+		wf := strings.TrimSpace(workerFolder)
+		if wf == "" {
+			rootErr = errors.New("WORKER_FOLDER not set")
+			return
 		}
-	} else if !info.IsDir() {
-		return "", fmt.Errorf("WORKER_FOLDER is not a directory: %s", abs)
-	}
-	abs = filepath.Clean(abs)
-	return abs, nil
+		abs, err := filepath.Abs(wf)
+		if err != nil {
+			rootErr = fmt.Errorf("cannot get absolute path of WORKER_FOLDER: %w", err)
+			return
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if mkErr := os.MkdirAll(abs, 0o755); mkErr != nil {
+					rootErr = fmt.Errorf("cannot create WORKER_FOLDER: %w", mkErr)
+					return
+				}
+			} else {
+				rootErr = fmt.Errorf("cannot stat WORKER_FOLDER: %w", err)
+				return
+			}
+		} else if !info.IsDir() {
+			rootErr = fmt.Errorf("WORKER_FOLDER is not a directory: %s", abs)
+			return
+		}
+		cachedRoot = filepath.Clean(abs)
+	})
+	return cachedRoot, rootErr
 }
 
 func ensureInsideRoot(p string) error {
@@ -100,12 +115,11 @@ func ensureInsideRoot(p string) error {
 	if err != nil {
 		return err
 	}
-	p = filepath.Clean(p)
-	if p == root {
-		return nil
+	if root == "" {
+		return errors.New("sandbox root not configured")
 	}
-	sep := string(os.PathSeparator)
-	if !strings.HasPrefix(p, root+sep) {
+	ok := withinRoot(root, p)
+	if !ok {
 		return fmt.Errorf("path escapes sandbox: %s", p)
 	}
 	return nil
@@ -116,19 +130,54 @@ func safeJoin(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if path == "" {
+	if root == "" {
+		return "", errors.New("sandbox root not configured")
+	}
+
+	if path == "" || path == "." {
 		return root, nil
 	}
-	if filepath.IsAbs(path) {
-		return "", errors.New("absolute paths are not allowed")
-	}
-	candidate := filepath.Join(root, path)
-	candidate = filepath.Clean(candidate)
 
-	if err := ensureInsideRoot(candidate); err != nil {
+	p := filepath.Clean(path)
+
+	if filepath.IsAbs(p) {
+		if !withinRoot(root, p) {
+			return "", fmt.Errorf("absolute path outside sandbox: %s", p)
+		}
+		return p, nil
+	}
+
+	base := filepath.Base(root)
+	sep := string(os.PathSeparator)
+	if p == base {
+		return root, nil
+	}
+	if strings.HasPrefix(p, base+sep) {
+		p = strings.TrimPrefix(p, base+sep)
+	}
+
+	candidate := filepath.Clean(filepath.Join(root, p))
+	if err = ensureInsideRoot(candidate); err != nil {
 		return "", err
 	}
 	return candidate, nil
+}
+
+func withinRoot(root, p string) bool {
+	r := filepath.Clean(root)
+	q := filepath.Clean(p)
+	rel, err := filepath.Rel(r, q)
+	if err != nil {
+		return false
+	}
+	dotdots := ".." + string(os.PathSeparator)
+	if rel == "." {
+		return true
+	}
+	if strings.HasPrefix(rel, dotdots) || rel == ".." {
+		return false
+	}
+	return true
 }
 
 func denyIfNoRoot() error {
@@ -167,7 +216,7 @@ func readFile(_ string, filename string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err = os.Stat(path); os.IsNotExist(err) {
 		log.Printf("⚠️ File %s does not exist.\n", path)
 		return "[ File " + filename + " was not found in path " + path + " ]", nil
 	}
@@ -187,7 +236,7 @@ func deleteFile(_ string, filename string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.Remove(path); err != nil {
+	if err = os.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			log.Printf("⚠️ File %s does not exist, nothing to delete.\n", path)
 			return "File " + path + " does not exist, nothing to delete", nil
@@ -234,11 +283,12 @@ func copyFileDirectoryInternal(source, destination string) (string, error) {
 		return "", fmt.Errorf("source does not exist: %w", err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := filepath.EvalSymlinks(src)
+		var target string
+		target, err = filepath.EvalSymlinks(src)
 		if err != nil {
 			return "", fmt.Errorf("cannot resolve symlink source: %w", err)
 		}
-		if err := ensureInsideRoot(target); err != nil {
+		if err = ensureInsideRoot(target); err != nil {
 			return "", err
 		}
 		info, err = os.Stat(target)
@@ -272,7 +322,7 @@ func copyFile(source, dest string) error {
 		return err
 	}
 	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
 	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -300,7 +350,7 @@ func copyDir(source, dest string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dest, srcInfo.Mode()); err != nil {
+	if err = os.MkdirAll(dest, srcInfo.Mode()); err != nil {
 		return err
 	}
 	return filepath.WalkDir(source, func(path string, d os.DirEntry, walkErr error) error {
@@ -334,10 +384,10 @@ func moveFile(_ string, source, destination string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.Rename(src, dst); err != nil {
+	if err = os.Rename(src, dst); err != nil {
 		return "", err
 	}
 	log.Printf("✅ Moved %s to %s.\n", src, dst)
@@ -352,7 +402,7 @@ func appendToFile(_ string, filename, content string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -485,7 +535,7 @@ func createDirectory(_ string, directoryPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err = os.MkdirAll(path, 0o755); err != nil {
 		return "", err
 	}
 	log.Printf("✅ Directory %s created successfully.\n", path)
