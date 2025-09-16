@@ -63,7 +63,7 @@ func (mc *LLMClient) sendEmbeddings(ctx context.Context, payload embeddingReques
 			log.Printf("⚠️ embed attempt %d failed: http=%d err=%v", i+1, status, err)
 			continue
 		}
-		if err := json.Unmarshal(body, &out); err != nil {
+		if err = json.Unmarshal(body, &out); err != nil {
 			lastErr = fmt.Errorf("parse embeddings json: %w", err)
 			log.Printf("⚠️ %v", lastErr)
 			continue

@@ -8,6 +8,13 @@ import (
 	"GoWorkerAI/app/tools"
 )
 
+const (
+	SystemRole    = "system"
+	UserRole      = "user"
+	AssistantRole = "assistant"
+	ToolRole      = "tool"
+)
+
 type Interface interface {
 	Think(context.Context, []Message, float64, int) (string, error)
 	Process(context.Context, *log.Logger, []Message, map[string]tools.Tool, string, int) (string, error)

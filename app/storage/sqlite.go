@@ -101,7 +101,7 @@ func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID st
 		query += " AND step_id = ?"
 		args = append(args, stepID)
 	}
-	query += " ORDER BY id ASC"
+	query += " ORDER BY id ASC, created_at ASC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

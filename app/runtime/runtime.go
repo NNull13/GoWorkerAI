@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
@@ -18,13 +17,14 @@ import (
 
 type Runtime struct {
 	mu         sync.RWMutex
-	worker     workers.Interface
 	model      models.Interface
+	worker     workers.Interface
 	toolkit    map[string]tools.Tool
 	db         storage.Interface
 	events     chan Event
 	activeTask atomic.Bool
 	cancelFunc context.CancelFunc
+	context    context.Context
 	audits     *AuditLogger
 }
 
@@ -38,7 +38,7 @@ type stepCtx struct {
 }
 
 func NewRuntime(w workers.Interface, m models.Interface, initial map[string]tools.Tool,
-	db storage.Interface, startTask bool, audits *AuditLogger) *Runtime {
+	db storage.Interface, audits *AuditLogger) *Runtime {
 	rt := &Runtime{
 		worker:  w,
 		model:   m,
@@ -50,7 +50,6 @@ func NewRuntime(w workers.Interface, m models.Interface, initial map[string]tool
 	for k, v := range initial {
 		rt.toolkit[k] = v
 	}
-	rt.activeTask.Store(startTask)
 	return rt
 }
 
@@ -63,23 +62,26 @@ func handlePanic(r *Runtime) {
 
 func (r *Runtime) Start(ctx context.Context) {
 	runtimeCtx, runtimeCancel := context.WithCancel(ctx)
-	r.mu.Lock()
-	r.cancelFunc = runtimeCancel
-	startTask := r.activeTask.Load()
+
+	r.mu.RLock()
+	taskRunning := r.activeTask.Load()
 	worker := r.worker
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
-	if startTask && worker != nil {
-		r.mu.Lock()
-		r.activeTask.Store(true)
-		r.mu.Unlock()
-
-		go func() {
-			defer handlePanic(r)
-			if err := r.runTask(runtimeCtx); err != nil {
-				r.audits.Printf("Error running task: %v", err)
-			}
-		}()
+	if !taskRunning && worker != nil {
+		task := worker.GetTask()
+		if task.Task != "" {
+			r.activeTask.Store(true)
+			go func() {
+				defer func() {
+					r.activeTask.Store(false)
+					defer handlePanic(r)
+				}()
+				if err := r.runTask(runtimeCtx, runtimeCancel); err != nil {
+					r.audits.Printf("Error running task: %v", err)
+				}
+			}()
+		}
 	}
 
 	for {
@@ -88,12 +90,11 @@ func (r *Runtime) Start(ctx context.Context) {
 			return
 		case ev, ok := <-r.events:
 			if !ok {
+				log.Println("runtime: Event channel closed.")
 				return
 			}
-			func() {
-				defer handlePanic(r)
-				r.handleEvent(ev)
-			}()
+			defer handlePanic(r)
+			r.handleEvent(ev)
 		}
 	}
 }
@@ -130,18 +131,16 @@ func (r *Runtime) Toolkit() map[string]tools.Tool {
 }
 
 func (r *Runtime) QueueEvent(event Event) {
-	select {
-	case r.events <- event:
-	case <-time.After(100 * time.Millisecond):
-		r.audits.Printf("⚠️ Event queue is full, dropping event, task: %v", event.Task)
-	}
+	r.events <- event
 }
 
-func (r *Runtime) runTask(ctx context.Context) error {
-	r.mu.RLock()
+func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error {
+	r.mu.Lock()
+	r.context = ctx
+	r.cancelFunc = cancel
 	currentWorker := r.worker
 	tk := cloneToolkit(r.toolkit)
-	r.mu.RUnlock()
+	r.mu.Unlock()
 
 	if currentWorker == nil {
 		r.audits.Println("⚠️ No worker assigned, cannot run task.")
@@ -175,12 +174,12 @@ func (r *Runtime) runTask(ctx context.Context) error {
 		stepData := stepCtx{
 			TaskID:      taskID,
 			Task:        step,
-			Index:       i,
+			Index:       i + 1,
 			Plan:        steps,
 			PrevSummary: runningSummary,
 			MaxAttempts: task.MaxIterations,
 		}
-		ok, newSummary := r.runStepWithValidation(ctx, stepData, currentWorker, tk)
+		ok, newSummary := r.runStepWithValidation(stepData, currentWorker, tk)
 		if !ok {
 			r.audits.Printf("❌ Step %d could not be completed, continuing.\n", i+1)
 		}
@@ -195,6 +194,19 @@ func (r *Runtime) runTask(ctx context.Context) error {
 	r.audits.Printf("🚧 Task is not fully completed according to validation: %s\n", task.Task)
 	r.audits.Close()
 	return nil
+}
+
+func (r *Runtime) GetTaskStatus(ctx context.Context) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	task := r.worker.GetTask()
+	if task == nil {
+		return "No task assigned to worker."
+	}
+	auditLogs := r.audits.GetLastLogs(10000)
+	history, _ := r.db.GetHistoryByTaskID(ctx, task.ID.String(), -1)
+	finalSummary, _ := r.model.GenerateSummary(ctx, task.Task, auditLogs, history)
+	return finalSummary
 }
 
 func (r *Runtime) validateTaskCompletion(ctx context.Context, stepData stepCtx, planText string) bool {
@@ -220,9 +232,10 @@ func (r *Runtime) validateTaskCompletion(ctx context.Context, stepData stepCtx, 
 	}
 }
 
-func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker workers.Interface,
+func (r *Runtime) runStepWithValidation(sc stepCtx, worker workers.Interface,
 	toolkit map[string]tools.Tool) (bool, string) {
 	summary := sc.PrevSummary
+	ctx := r.context
 
 	for attempt := 1; attempt <= sc.MaxAttempts; attempt++ {
 		select {
@@ -231,42 +244,42 @@ func (r *Runtime) runStepWithValidation(ctx context.Context, sc stepCtx, worker 
 			return false, summary
 		default:
 		}
-		step := sc.Plan[sc.Index]
+		step := sc.Plan[sc.Index-1] // -1 because the index starts from 0
 
 		// todo: Maybe it would be good to check if is necessary to run the step
-		r.audits.Printf("▶️ Executing step %d (attempt %d): %s\n", sc.Index+1, attempt, step)
+		r.audits.Printf("▶️ Executing step %d (attempt %d): %s\n", sc.Index, attempt, step)
 
-		prompt := worker.PromptSegmentedStep(sc.Plan, sc.Index, summary, worker.GetPreamble())
+		prompt := worker.PromptSegmentedStep(step, summary, worker.GetPreamble())
 
 		resp, err := r.model.Process(ctx, r.audits.Logger, prompt, toolkit, sc.TaskID, sc.Index)
 		if err != nil {
-			r.audits.Printf("❌ Error processing step %d attempt %d: %v\n", sc.Index+1, attempt, err)
+			r.audits.Printf("❌ Error processing step %d attempt %d: %v\n", sc.Index, attempt, err)
 			continue
 		}
 
-		r.audits.Printf("✅ Step %d response: %s", sc.Index+1, resp)
+		r.audits.Printf("✅ Step %d response: %s", sc.Index, resp)
 
 		auditLogs := r.audits.GetLastLogs(10000)
 		history, _ := r.db.GetHistoryByTaskID(ctx, sc.TaskID, sc.Index)
 		summary, err = r.model.GenerateSummary(ctx, step, auditLogs, history)
 		if err != nil {
-			r.audits.Printf("❌ Error generating summary for step %d: %v\n", sc.Index+1, err)
+			r.audits.Printf("❌ Error generating summary for step %d: %v\n", sc.Index, err)
 			continue
 		}
 
-		r.audits.Printf("ℹ️ Current step %d summary: %s\n", sc.Index+1, summary)
+		r.audits.Printf("ℹ️ Current step %d summary: %s\n", sc.Index, summary)
 
 		ok, reason, err := r.model.TrueOrFalse(ctx, worker.PromptValidation(sc.Task, summary))
 		if err != nil {
-			r.audits.Printf("❌ Error validating step %d (LLM): %v\n", sc.Index+1, err)
+			r.audits.Printf("❌ Error validating step %d (LLM): %v\n", sc.Index, err)
 			continue
 		}
 
 		if ok {
-			r.audits.Printf("✅ Step %d completed, task: %s\n, reason: %s", sc.Index+1, sc.Task, reason)
+			r.audits.Printf("✅ Step %d completed, task: %s\n, reason: %s", sc.Index, sc.Task, reason)
 			return true, summary
 		} else {
-			r.audits.Printf("❌ Step %d not completed, task: %s\n, reason: %s", sc.Index+1, sc.Task, reason)
+			r.audits.Printf("❌ Step %d not completed, task: %s\n, reason: %s", sc.Index, sc.Task, reason)
 		}
 	}
 

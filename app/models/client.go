@@ -131,8 +131,8 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, auditLogs
 	}
 
 	messages := []Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: content},
+		{Role: SystemRole, Content: systemPrompt},
+		{Role: UserRole, Content: content},
 	}
 
 	response, err := mc.generateResponse(ctx, messages, nil, 0.25, -1)
@@ -168,7 +168,7 @@ func (mc *LLMClient) Process(ctx context.Context, audit *log.Logger, messages []
 	if err = mc.storage.SaveHistory(ctx, storage.Record{
 		TaskID:    taskID,
 		StepID:    int64(stepID),
-		Role:      "assistant",
+		Role:      AssistantRole,
 		Content:   message.Content,
 		CreatedAt: time.Now(),
 	}); err != nil {
@@ -180,7 +180,7 @@ func (mc *LLMClient) Process(ctx context.Context, audit *log.Logger, messages []
 
 func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, toolkit map[string]tools.Tool,
 	toolCalls []toolCall, taskID string, stepID int) (messages []Message) {
-	messages = append(messages, Message{Role: "assistant", ToolCalls: toolCalls})
+	messages = append(messages, Message{Role: AssistantRole, ToolCalls: toolCalls})
 
 	for i, call := range toolCalls {
 		audit.Printf("▶️ Executing tool call %v: %v", i, call)
@@ -201,7 +201,7 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 		if err = mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
 			StepID:     int64(stepID),
-			Role:       "tool",
+			Role:       ToolRole,
 			Tool:       tool.Name,
 			Content:    result,
 			Parameters: call.Function.Arguments,
@@ -210,9 +210,14 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 			log.Printf("⚠️ Error saving history for tool %s: %v", tool.Name, err)
 		}
 
+		if len(result) == 0 {
+			log.Printf("⚠️ Tool %s returned empty result", tool.Name)
+			continue
+		}
+
 		messages = append(messages,
 			Message{
-				Role:       "tool",
+				Role:       ToolRole,
 				Content:    result,
 				ToolCallID: call.ID,
 			},
@@ -223,10 +228,23 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 }
 
 func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
+	messagesCurated := make([]Message, 0, len(messages))
+	hasUserPrompt := false
+	for _, msg := range messages {
+		if len(msg.Content) > 0 {
+			messagesCurated = append(messagesCurated, msg)
+		}
+		if msg.Role == UserRole {
+			hasUserPrompt = true
+		}
+	}
+	if !hasUserPrompt {
+		return nil, errors.New("no user prompt found")
+	}
 	payload := requestPayload{
 		Model:       mc.model,
 		Tools:       functionsToPayload(tools),
-		Messages:    messages,
+		Messages:    messagesCurated,
 		Temperature: temp,
 		MaxTokens:   maxTokens,
 	}
@@ -250,11 +268,14 @@ func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayl
 func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
 	respBytes, status, err := mc.restClient.Post(ctx, endpoint, payload, nil)
 	if err == nil && status >= 200 && status < 300 {
+		if status == 400 {
+			log.Printf("⚠️ HTTP400 LLM request failed: request %v", payload)
+		}
 		var out ResponseLLM
 		if uErr := json.Unmarshal(respBytes, &out); uErr != nil {
 			err = fmt.Errorf("unmarshal: %w", uErr)
 		}
 		return &out, nil
 	}
-	return nil, fmt.Errorf("request failed: %w", maxRetries, err)
+	return nil, fmt.Errorf("request failed: %w", err)
 }
