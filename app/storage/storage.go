@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -19,4 +20,21 @@ type Record struct {
 	Parameters string    `json:"parameters" db:"parameters"`
 	Content    string    `json:"content" db:"content"`
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+}
+
+func RecordListToString(records []Record, countSteps int) string {
+	recordsSliced := records
+	var historySummary string
+	if len(records) > 0 {
+		if len(records) > countSteps {
+			recordsSliced = records[:countSteps]
+		}
+		for _, entry := range recordsSliced {
+			if entry.Role == "tool" || entry.Role == "assistant" {
+				historySummary += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | Step: %d | ID: %d",
+					entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
+			}
+		}
+	}
+	return historySummary
 }

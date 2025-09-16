@@ -19,7 +19,7 @@ const (
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Golang",
-		"You are a Golang engineer. Build a small Golang application that demonstrates your skills by implementing three functions in a package (e.g., `utils`): ",
+		"Scan all .go files in the project. For each one, generate a corresponding _test.go file following Go’s standard testing conventions, without editing the application logic files. Only create a test file if the .go file contains actual logic worth testing (e.g., functions, methods, structs with behavior). Do not create tests for files that only contain interfaces, constants, or trivial definitions. Never run any Go commands.",
 		tools.PresetFileOpsBasic, // toolPreset
 		[]string{
 			"Write the most clean and efficient code.",
@@ -38,7 +38,7 @@ var customWorkers = []workers.Interface{
 }
 
 func getClients() []clients.Interface {
-	return nil //[]clients.Interface{clients.NewDiscordClient()}
+	return []clients.Interface{clients.NewDiscordClient()}
 }
 
 func getDB() storage.Interface {

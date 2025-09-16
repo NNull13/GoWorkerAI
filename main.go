@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"GoWorkerAI/app/runtime"
@@ -14,30 +15,29 @@ import (
 )
 
 func main() {
+	appCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	log.SetOutput(os.Stdout)
 	db := getDB()
 	model := getModel(db)
 	clients := getClients()
-	var wg sync.WaitGroup
 	colors := utils.GetColors()
 	for i, worker := range customWorkers {
-		wg.Add(1)
 		toolsPreset := tools.NewToolkitFromPreset(worker.GetToolsPreset())
 		auditLogger, err := runtime.NewWorkerLogger(fmt.Sprintf("worker_%d_%d", i, time.Now().Unix()),
 			colors[i%len(colors)], 10000)
 		if err != nil {
 			log.Fatalf("failed to create logger for worker %d: %v", i+1, err)
 		}
-		r := runtime.NewRuntime(worker, model, toolsPreset, db, worker.GetTask() != nil, auditLogger)
+		r := runtime.NewRuntime(worker, model, toolsPreset, db, auditLogger)
 		for _, client := range clients {
 			client.Subscribe(r)
 		}
-		go func(rt *runtime.Runtime) {
-			defer wg.Done()
-			rt.Start(context.Background())
-		}(r)
+		go r.Start(appCtx)
+
 	}
 	log.Println("All runtimes started. Waiting for clients indefinitely...")
-	wg.Wait()
-	return
+
+	// Wait for signal to exit
+	<-appCtx.Done()
 }
