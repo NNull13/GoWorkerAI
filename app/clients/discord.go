@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/tools"
 	"GoWorkerAI/app/utils"
@@ -54,7 +55,7 @@ func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 				Properties: map[string]any{
 					"channel_id": map[string]any{
 						"type":        "string",
-						"description": fmt.Sprintf("Discord channel ID where the message will be sent. Use %s", c.channelID),
+						"description": fmt.Sprintf("Discord channel ID where the message will be sent. Default channel is %s", c.channelID),
 					},
 					"message": map[string]any{
 						"type":        "string",
@@ -98,27 +99,37 @@ func (c *DiscordClient) Close() error {
 }
 
 func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	ctx := context.Background()
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
-	if m.Author.ID != os.Getenv("DISCORD_ADMIN") {
-		return
-	}
-	if err := c.runtime.SaveEventOnHistory(context.Background(), m.Content); err != nil {
+	content := fmt.Sprintf("ChannelID: %s\nUserID %s\nUserName: %s\nMessage: %s",
+		m.ChannelID, m.Author.ID, m.Author.Username, m.Content)
+	if err := c.runtime.SaveEventOnHistory(ctx, content, models.UserRole); err != nil {
 		log.Printf("⚠️ Error saving event: %v", err)
 	}
-	if strings.HasPrefix(m.Content, "!task") {
-		parts := strings.Fields(m.Content)
-		if len(parts) < 2 {
-			s.ChannelMessageSend(m.ChannelID, "Usage: !task create <description> | !task cancel")
-			return
+	contentSplitted := strings.Fields(m.Content)
+	var msg string
+	switch strings.ToLower(contentSplitted[0]) {
+	case "status":
+		msg = c.getStatus(ctx, s, m)
+	case "help", "!help":
+		msg = "Supported commands: !help, !task"
+	case "!task":
+		if len(contentSplitted) < 2 {
+			msg = "Usage: !task create <description> | !task cancel | !task status"
+			break
+		}
+		if m.Author.ID != os.Getenv("DISCORD_ADMIN") {
+			msg = "You are not authorized to use this command."
+			break
 		}
 
-		var msg string
-		cmd := parts[1]
+		cmd := contentSplitted[1]
 		switch cmd {
 		case "create":
-			description := strings.Join(parts[2:], " ")
+			description := strings.Join(contentSplitted[2:], " ")
+			description = description + "\n Rule: Must notify on discord (channel id: " + m.ChannelID + ") when you finish."
 			newTask := workers.Task{
 				Task:          description,
 				MaxIterations: 5,
@@ -128,18 +139,36 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.NewTask],
 			}
 			c.runtime.QueueEvent(ev)
-			msg = "New task created: " + description
+			msg = "New task created, processing..."
 		case "cancel":
 			ev := runtime.Event{
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.CancelTask],
 			}
 			c.runtime.QueueEvent(ev)
 			msg = "Active task cancelled."
+		case "status":
+			msg = c.getStatus(ctx, s, m)
 		default:
-			msg = "Unknown task command. Use: create | cancel"
+			msg = "Unknown task command. Use: !task with create | cancel | status"
 		}
-		s.ChannelMessageSend(m.ChannelID, msg)
+	default:
+		isMentioned := false
+		for _, mention := range m.Mentions {
+			if mention.ID == s.State.User.ID {
+				isMentioned = true
+			}
+		}
+		if !isMentioned {
+			return
+		}
+		msg = c.runtime.ProcessQuickEvent(ctx, content)
 	}
+	s.ChannelMessageSend(m.ChannelID, msg)
+}
+
+func (c *DiscordClient) getStatus(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate) string {
+	s.ChannelMessageSend(m.ChannelID, "Processing...")
+	return c.runtime.GetTaskStatus(ctx)
 }
 
 func (c *DiscordClient) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {

@@ -19,7 +19,8 @@ const (
 var customWorkers = []workers.Interface{
 	workers.NewCoder(
 		"Golang",
-		"You are a Golang engineer. Build a small Golang application that demonstrates your skills by implementing three functions in a package (e.g., `utils`): ",
+		//"You are a Golang engineer. Build a small Golang application that demonstrates your skills by implementing three functions in a package (e.g., `utils`): ",
+		"",
 		tools.PresetFileOpsBasic, // toolPreset
 		[]string{
 			"Write the most clean and efficient code.",
@@ -38,7 +39,7 @@ var customWorkers = []workers.Interface{
 }
 
 func getClients() []clients.Interface {
-	return nil //[]clients.Interface{clients.NewDiscordClient()}
+	return []clients.Interface{clients.NewDiscordClient()}
 }
 
 func getDB() storage.Interface {

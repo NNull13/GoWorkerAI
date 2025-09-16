@@ -57,12 +57,12 @@ func (c *Coder) TaskInformation() string {
 func (c *Coder) PromptPlan(taskInformation string) []models.Message {
 	sys := planSystemPrompt(c.GetPreamble())
 	return []models.Message{
-		{Role: "system", Content: sys},
-		{Role: "user", Content: strings.TrimSpace(taskInformation)},
+		{Role: models.SystemRole, Content: sys},
+		{Role: models.UserRole, Content: strings.TrimSpace(taskInformation)},
 	}
 }
 
-func (c *Coder) GetPreamble() []string {
+func (c *Coder) GetPreamble() string {
 	base := []string{
 		"You are a senior software engineer and strategic planner.",
 		"Write correct, minimal, maintainable code that compiles and runs.",
@@ -71,5 +71,5 @@ func (c *Coder) GetPreamble() []string {
 		"When unsure, choose the safest, reversible change.",
 		"Keep diffs minimal; do not rewrite unrelated code.",
 	}
-	return append(base, c.Rules...)
+	return strings.Join(append(base, c.Rules...), "\n")
 }

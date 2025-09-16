@@ -17,7 +17,7 @@ type Interface interface {
 	PromptPlan(taskInformation string) []models.Message
 	PromptNextAction(plan, resume string) []models.Message
 	PromptValidation(plan, summary string) []models.Message
-	PromptSegmentedStep(steps []string, index int, summary string, preamble []string) []models.Message
+	PromptSegmentedStep(step, summary, preamble string) []models.Message
 	TaskInformation() string
 }
 
@@ -25,14 +25,13 @@ type Base interface {
 	SetTask(*Task)
 	GetTask() *Task
 	GetToolsPreset() string
-	GetPreamble() []string
+	GetPreamble() string
 }
 
 type Task struct {
-	ID               uuid.UUID
-	Task             string
-	AcceptConditions []string
-	MaxIterations    int
+	ID            uuid.UUID
+	Task          string
+	MaxIterations int
 }
 
 type Worker struct {
@@ -49,6 +48,18 @@ type workerInfo struct {
 	Rules         []string `json:"rules,omitempty"`
 	Folder        string   `json:"folder,omitempty"`
 	LockFolder    bool     `json:"lock_folder,omitempty"`
+}
+
+func NewWorker(task, toolPreset string, rules []string, maxIterations int) *Worker {
+	return &Worker{
+		Task: &Task{
+			ID:            uuid.New(),
+			Task:          task,
+			MaxIterations: maxIterations,
+		},
+		ToolsPreset: toolPreset,
+		Rules:       rules,
+	}
 }
 
 func (w *Worker) SetTask(task *Task) {
@@ -94,12 +105,11 @@ func (w *Worker) TaskInformation() string {
 	return string(taskInformation)
 }
 
-func planSystemPrompt(preamble []string) string {
+func planSystemPrompt(preamble string) string {
 	core := []string{
 		"You are an expert strategic planner. Create a precise, step-by-step plan for the task described below.",
 		"Objectives:",
 		"- Deterministic output; no filler, no extra commentary.",
-		"- Prefer small, idempotent, verifiable steps.",
 		"- Follow the specified language and style when applicable.",
 		"- If information is missing, include explicit clarification or TODO steps.",
 		"CONTENT RULES:",
@@ -117,8 +127,7 @@ func planSystemPrompt(preamble []string) string {
 		fmt.Sprintf("- Max %d steps. No sub-steps, no explanations.", maxSteps),
 	}
 
-	out := append(preamble, core...)
-	return strings.Join(out, "\n")
+	return preamble + "\n" + strings.Join(core, "\n")
 }
 
 func (w *Worker) PromptNextAction(plan, resume string) []models.Message {
@@ -141,8 +150,8 @@ func (w *Worker) PromptNextAction(plan, resume string) []models.Message {
 	)
 
 	return []models.Message{
-		{Role: "system", Content: sys},
-		{Role: "user", Content: user},
+		{Role: models.SystemRole, Content: sys},
+		{Role: models.UserRole, Content: user},
 	}
 }
 
@@ -173,26 +182,16 @@ func (w *Worker) PromptValidation(plan, summary string) []models.Message {
 	)
 
 	return []models.Message{
-		{Role: "system", Content: sys},
-		{Role: "user", Content: user},
+		{Role: models.SystemRole, Content: sys},
+		{Role: models.UserRole, Content: user},
 	}
 }
 
-func (w *Worker) PromptSegmentedStep(steps []string, index int, summary string, preamble []string) []models.Message {
-	if index < 0 || index >= len(steps) {
-		return nil
-	}
-
-	stepText := steps[index]
-	total := len(steps)
-
+func (w *Worker) PromptSegmentedStep(step, summary, preamble string) []models.Message {
 	var sb strings.Builder
-
-	for _, text := range preamble {
-		sb.WriteString(text)
-	}
-	sb.WriteString(fmt.Sprintf("FOCUS TASK (%d/%d):\n", index, total))
-	sb.WriteString(stepText + "\n")
+	sb.WriteString(preamble)
+	sb.WriteString("FOCUS TASK:\n")
+	sb.WriteString(step + "\n")
 	sb.WriteString("RULE: Must use only the tools provided for the task")
 
 	if summary == "" {
@@ -203,24 +202,24 @@ func (w *Worker) PromptSegmentedStep(steps []string, index int, summary string, 
 		sb.WriteString("\n")
 	}
 
-	systemMsg := models.Message{Role: "system", Content: sb.String()}
-	userMsg := models.Message{Role: "user", Content: steps[index]}
+	systemMsg := models.Message{Role: models.SystemRole, Content: sb.String()}
+	userMsg := models.Message{Role: models.UserRole, Content: step}
 	return []models.Message{systemMsg, userMsg}
 }
 
 func (w *Worker) PromptPlan(taskInformation string) []models.Message {
 	sys := planSystemPrompt(w.GetPreamble())
 	return []models.Message{
-		{Role: "system", Content: sys},
-		{Role: "user", Content: strings.TrimSpace(taskInformation)},
+		{Role: models.SystemRole, Content: sys},
+		{Role: models.UserRole, Content: strings.TrimSpace(taskInformation)},
 	}
 }
 
-func (w *Worker) GetPreamble() []string {
+func (w *Worker) GetPreamble() string {
 	base := []string{
 		"You are the best assistant for any task. All tasks are important.",
 		"Complete tasks quickly, without errors, and without breaking rules.",
 		"Prefer clear, verifiable, reversible steps.",
 	}
-	return append(base, w.Rules...)
+	return strings.Join(append(base, w.Rules...), "\n")
 }
