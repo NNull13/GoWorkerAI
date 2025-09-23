@@ -1,6 +1,8 @@
 package models
 
-import "GoWorkerAI/app/tools"
+import (
+	"GoWorkerAI/app/tools"
+)
 
 type toolCall struct {
 	ID       string       `json:"id"`

@@ -22,23 +22,27 @@ func main() {
 	model := getModel(db)
 	clients := getClients()
 	colors := utils.GetColors()
-	for i, worker := range customWorkers {
-		toolsPreset := tools.NewToolkitFromPreset(worker.GetToolsPreset())
-		auditLogger, err := runtime.NewWorkerLogger(fmt.Sprintf("worker_%d_%d", i, time.Now().Unix()),
+	var i int
+	for _, m := range team.Members {
+		toolsPreset := tools.NewToolkitFromPreset(m.GetToolsPreset())
+		auditLogger, err := utils.NewWorkerLogger(fmt.Sprintf("worker_%d_%d", i, time.Now().Unix()),
 			colors[i%len(colors)], 10000)
 		if err != nil {
 			log.Fatalf("failed to create logger for worker %d: %v", i+1, err)
 		}
-		r := runtime.NewRuntime(worker, model, toolsPreset, db, auditLogger)
-		for _, client := range clients {
-			client.Subscribe(r)
-		}
-		go r.Start(appCtx)
-
+		m.Audits = auditLogger
+		m.SetToolKit(toolsPreset)
+		i++
 	}
+
+	r := runtime.NewRuntime(team, model, db)
+	for _, client := range clients {
+		client.Subscribe(r)
+	}
+	go r.Start(appCtx)
+
 	log.Println("All runtimes started. Waiting for clients indefinitely...")
 
 	// Wait for signal to exit
 	<-appCtx.Done()
-	time.Sleep(300 * time.Millisecond)
 }

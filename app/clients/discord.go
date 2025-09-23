@@ -11,12 +11,12 @@ import (
 
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/runtime"
-	"GoWorkerAI/app/tools"
-	"GoWorkerAI/app/utils"
-	"GoWorkerAI/app/workers"
+	"GoWorkerAI/app/teams"
 )
 
 var _ Interface = &DiscordClient{}
+
+const originDiscord string = "discord"
 
 type DiscordClient struct {
 	Client
@@ -46,44 +46,7 @@ func NewDiscordClient() *DiscordClient {
 
 func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
 	c.runtime = rt
-	discordActions := []tools.Tool{
-		{
-			Name:        "send_discord_message",
-			Description: "Use this action to send a text message to a specific Discord channel.",
-			Parameters: tools.Parameter{
-				Type: "object",
-				Properties: map[string]any{
-					"channel_id": map[string]any{
-						"type":        "string",
-						"description": fmt.Sprintf("Discord channel ID where the message will be sent. Default channel is %s", c.channelID),
-					},
-					"message": map[string]any{
-						"type":        "string",
-						"description": "The content of the message to send.",
-					},
-				},
-				Required: []string{"channel_id", "message"},
-			},
-			HandlerFunc: func(tool tools.ToolTask) (string, error) {
-				discordParams, err := utils.CastAny[discordParameters](tool.Parameters)
-				if err != nil {
-					return "", err
-				}
-
-				err = c.SendMessage(discordParams.ChannelID, discordParams.Message)
-
-				return "✅ Message successfully sent to Discord channel " + discordParams.ChannelID, nil
-			},
-		},
-	}
-
-	c.runtime.AddTools(discordActions)
 	c.Open()
-}
-
-type discordParameters struct {
-	Message   string `json:"message"`
-	ChannelID string `json:"channel_id"`
 }
 
 func (c *DiscordClient) Open() error {
@@ -130,11 +93,11 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 		case "create":
 			description := strings.Join(contentSplitted[2:], " ")
 			description = description + "\n Rule: Must notify on discord (channel id: " + m.ChannelID + ") when you finish."
-			newTask := workers.Task{
-				Task:          description,
-				MaxIterations: 5,
+			newTask := teams.Task{
+				Description: description,
 			}
 			ev := runtime.Event{
+				Origin:      originDiscord,
 				Task:        &newTask,
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.NewTask],
 			}
@@ -142,6 +105,7 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 			msg = "New task created, processing..."
 		case "cancel":
 			ev := runtime.Event{
+				Origin:      originDiscord,
 				HandlerFunc: runtime.EventsHandlerFuncDefault[runtime.CancelTask],
 			}
 			c.runtime.QueueEvent(ev)
