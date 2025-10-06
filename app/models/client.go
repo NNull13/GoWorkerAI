@@ -104,24 +104,15 @@ func (mc *LLMClient) TrueOrFalse(ctx context.Context, message string) (bool, str
 	return false, "", fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
-func (mc *LLMClient) Delegate(ctx context.Context, options []string, task string) (*DelegateAction, error) {
+func (mc *LLMClient) Delegate(ctx context.Context, options []string, task, sysPrompt string) (*DelegateAction, error) {
 	sys := Message{
-		Role: "system",
-		Content: "You are the Team Orchestrator." +
-			"Your job is to decide which worker should handle the incoming task." +
-			"Each worker has a unique name, capabilities, and purpose." +
-			"Choose the single most suitable worker for the task based on its description and required skills\n" +
-			"Available workers:\n" + strings.Join(options, "\n") +
-			"\n" +
-			"Your decision should be based on the following criteria:\n" +
-			"1. The worker's when call\n" +
-			"2. The worker's tools\n" +
-			"3. The task description\n" +
-			"4. The task requirements\n",
+		Role:    "system",
+		Content: sysPrompt,
 	}
 	user := Message{
-		Role:    "user",
-		Content: task,
+		Role: "user",
+		Content: "Choose the single most suitable worker for the task using delegate_task tool based on the when call description and available tools\n" +
+			"\nTask to delegate:\n" + task + "\nAvailable workers:\n" + strings.Join(options, "\n"),
 	}
 
 	msgs := []Message{sys, user}
@@ -219,8 +210,8 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 	toolCalls []toolCall, taskID string, stepID int) (messages []Message) {
 	messages = append(messages, Message{Role: AssistantRole, ToolCalls: toolCalls})
 
-	for i, call := range toolCalls {
-		audit.Printf("▶️ Executing tool call %v: %v", i, call)
+	for _, call := range toolCalls {
+		audit.Printf("▶️ Executing: %v", call)
 		toolTask := tools.ToolTask{Key: call.Function.Name}
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
 		tool, exists := toolkit[toolTask.Key]
@@ -286,7 +277,7 @@ func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, t
 		MaxTokens:   maxTokens,
 	}
 
-	return mc.sendRequestAndParse(ctx, payload, 3)
+	return mc.sendRequestAndParse(ctx, payload)
 }
 
 func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayload) {
@@ -302,7 +293,7 @@ func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayl
 	return payload
 }
 
-func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
+func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload) (*ResponseLLM, error) {
 	respBytes, status, err := mc.restClient.Post(ctx, endpoint, payload, nil)
 	if err == nil && status >= 200 && status < 300 {
 		if status == 400 {

@@ -17,47 +17,34 @@ const (
 	//  ...
 )
 
-var task = "Create a new folder with a main.go file that implements a function with a method named HelloWorld and the function should print 'Hello World' 13 times to the console. Also you should create the main_test.go "
+var task = "Create a new minimal app with gin framework and a calculator service to resolve operations from a endpoint request from a string like `2 + (5 + 2 x 4)`  "
 
 var members = []*teams.Member{
 	{
 		Key: "leader", //Reserved key
 		Worker: &workers.Leader{
 			Base: workers.Base{
-				ToolsPreset: tools.PresetDelegate,
-				Rules:       []string{},
+				ToolsPreset: tools.PresetFileOpsBasic,
+				Rules: []string{
+					"Always avoid using commands that are not available in the tool kit.",
+					"Never suggest using go commands, still not supported.",
+				},
 			},
 		},
 	},
 	{
-		Key: "event_handler", //Reserved key
-		Worker: &workers.EventHandler{
-			Base: workers.Base{
-				ToolsPreset: tools.PresetDelegate,
-				Rules:       []string{},
-			},
-		},
+		Key:    "event_handler", //Reserved key
+		Worker: &workers.EventHandler{},
 	},
 	teams.NewMember("coder", "This worker should be called every time is needed programming code.", &workers.Coder{
 		Base: workers.Base{
-			Rules: []string{
-				"Write the most clean and efficient code.",
-				"Use Go's best practices and idiomatic code.",
-				"Use idiomatic Go naming conventions.",
-				"Write table-driven tests with descriptive case names for clarity.",
-				"Organize tests using `t.Run` subtests for each case.",
-				"Rely only on Go's standard library; avoid external dependencies.",
-				"Add clear, meaningful doc comments for all exported identifiers.",
-				"Follow idiomatic Go naming conventions for packages, functions, and variables.",
-				"Keep functions small, focused, and easy to read.",
-				"Ensure the code compiles, is idiomatic, and formatted. "},
-		},
-	}),
-	teams.NewMember("file_manager", "This worker should be called when is necessary to work with the local files", &workers.FileManager{
-		Base: workers.Base{
 			ToolsPreset: tools.PresetFileOpsBasic,
 			Rules: []string{
-				"Never delete or override system files",
+				"You are an golang expert",
+				"You should use gin framework for the web server",
+				"You should use postgresql for the database",
+				"Always avoid using commands that are not available in the tool kit. Discard as it was done",
+				"Never use go commands, still not supported.",
 			},
 		},
 	}),

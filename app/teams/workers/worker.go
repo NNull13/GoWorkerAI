@@ -3,14 +3,13 @@ package workers
 import (
 	"fmt"
 
-	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/tools"
 )
 
 const maxSteps = 20
 
 type Worker interface {
-	Prompt(task, context string) []models.Message
+	Prompt(context string) string
 	GetToolsOptions() []string
 	GetToolsPreset() string
 	AddTools(tool []tools.Tool)

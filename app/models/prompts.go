@@ -7,6 +7,7 @@ OBJECTIVES:
 - Deterministic output; no filler, no extra commentary.
 - Follow the specified language and style when applicable.
 - If information is missing, include explicit clarification or TODO steps.
+- Steps must be bullets with a description of the action to be taken.
 
 CONTENT RULES:
 - Steps must be actionable, testable, and as small as reasonably possible.

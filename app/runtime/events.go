@@ -58,7 +58,8 @@ func (r *Runtime) ProcessQuickEvent(ctx context.Context, message string) string 
 		}
 	}
 
-	response, err := r.model.Think(ctx, r.team.GetEventHandler().Prompt(message, summary), 0.666, maxTokens)
+	messages := models.CreateMessages(message, r.team.GetEventHandler().Prompt(summary))
+	response, err := r.model.Think(ctx, messages, 0.666, maxTokens)
 	if err != nil {
 		response = "Couldn't process your message. Something went wrong"
 	}

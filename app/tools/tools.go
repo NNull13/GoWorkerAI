@@ -397,7 +397,6 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 		return pick(
 			read_file,
 			write_file,
-			append_file,
 			create_directory,
 			list_files,
 			delete_file,

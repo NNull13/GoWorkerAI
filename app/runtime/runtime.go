@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"runtime/debug"
@@ -67,7 +66,6 @@ func (r *Runtime) Start(ctx context.Context) {
 		case ev, ok := <-r.events:
 			if !ok {
 				log.Println("runtime: Event channel closed.")
-				return
 			}
 			r.handleEvent(ev)
 		}
@@ -95,8 +93,9 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	r.mu.Lock()
 	r.context = ctx
 	r.cancelFunc = cancel
-	leader := r.team.GetLeader()
-	task := r.team.Task
+	team := r.team
+	task := team.Task
+	leader := team.GetLeader()
 	teamOptions := r.team.GetMembersOptions()
 	r.mu.Unlock()
 
@@ -106,14 +105,14 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	}
 
 	log.Printf("▶️ Starting task: %s", task.Description)
-	messages := models.CreateMessages(task.Description, models.PlanSystemPrompt)
+	messages := models.CreateMessages(task.Description, leader.Prompt(models.PlanSystemPrompt))
 	planText, err := r.model.Think(ctx, messages, 0.25, -1)
 	if err != nil {
 		log.Printf("❌ Error generating plan: %v\n", err)
 		return err
 	}
 
-	leader.Audits.Printf("✅ Plan generated:\n%s\n", planText)
+	team.Audits.Printf("✅ Plan generated:\n%s\n", planText)
 
 	steps := strings.Split(planText, "\n")
 	if len(steps) == 0 {
@@ -123,10 +122,13 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	log.Printf("✅ Detected %d step(s) in plan.\n", len(steps))
 
 	var i int
+	var summary string
+	var history []storage.Record
 	for _, step := range steps {
 		i++
 		var delegateAction *models.DelegateAction
-		delegateAction, err = r.model.Delegate(ctx, teamOptions, step)
+		prompt := leader.Prompt(summary)
+		delegateAction, err = r.model.Delegate(ctx, teamOptions, step, prompt)
 		if err != nil || delegateAction == nil {
 			log.Printf("❌ Skipping step %d. Error delegating: %v\n", i, err)
 			continue
@@ -137,36 +139,45 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 			log.Printf("❌ Skipping step %d. Worker %s not found.\n", i, delegateAction.Worker)
 			continue
 		}
-		leader.Audits.Printf("▶️ Delegating step %d: %s to: %s", i, step, delegateAction.Worker)
-		worker.Audits.Printf("✅ Task assigned: %s\n", delegateAction.Task)
+		log.Printf("Worker %s found.\n", delegateAction.Worker)
+		team.Audits.Printf("▶️ Delegating step %d: %s to: %s", i, step, delegateAction.Worker)
+		team.Audits.Printf("✅ Task assigned: %s\n", delegateAction.Task)
 
-		var result string
-		for {
-
-			messages = worker.Prompt(delegateAction.Task, delegateAction.Context)
-			result, err = r.model.Process(ctx, worker.Key, worker.Audits.Logger, messages, worker.GetToolKit(), task.ID.String(), i)
-			if err != nil {
-				log.Printf("❌ Skipping step %d. Error processing: %v\n", i, err)
-				continue
-			}
-
-			var finish bool
-			var reason string
-			var summary string
-			var history []storage.Record
-			history, _ = r.db.GetHistoryByTaskID(ctx, task.ID.String(), i)
-			summary, err = r.model.GenerateSummary(ctx, task.Description, history)
-			prompt := fmt.Sprintf("%s\nTask : %s\n Summary: %s", models.TaskDoneBoolPrompt, delegateAction.Task, summary)
-			finish, reason, err = r.model.TrueOrFalse(ctx, prompt)
-			if finish {
-				worker.Audits.Printf("✅ Task finished: %s", delegateAction.Task, result)
-				leader.Audits.Printf("✅ Task finished: %s Worker: %s", delegateAction.Task, result, delegateAction.Worker)
-				break
-			} else {
-				worker.Audits.Printf("❌ Task: %s still not finished, reason: %s", delegateAction.Task, reason)
-			}
-
+		//		var result string
+		var flag bool
+		//		for {
+		taskContext := delegateAction.Context
+		if flag {
+			taskContext = taskContext + "\n" + summary
 		}
+		flag = true
+		prompt = worker.Prompt(delegateAction.Context)
+		messages = models.CreateMessages(delegateAction.Task, prompt)
+		_, err = r.model.Process(ctx, worker.Key, team.Audits.Logger, messages, worker.GetToolKit(), task.ID.String(), i)
+		if err != nil {
+			log.Printf("❌ Skipping step %d. Error processing: %v\n", i, err)
+			continue
+		}
+		/*
+				var finish bool
+				var reason string
+				history, _ = r.db.GetHistoryByTaskID(ctx, task.ID.String(), i)
+				summary, _ = r.model.GenerateSummary(ctx, task.Description, history)
+				prompt = leader.Prompt(fmt.Sprintf("\n%s\nTask : %s\n Summary: %s", models.TaskDoneBoolPrompt, delegateAction.Task, summary))
+				finish, reason, err = r.model.TrueOrFalse(ctx, prompt)
+				if finish {
+					team.Audits.Printf("✅ Task finished: %s Worker: %s", delegateAction.Task, result, delegateAction.Worker)
+					break
+				} else {
+					team.Audits.Printf("❌ Task: %s still not finished, reason: %s", delegateAction.Task, reason)
+				}
+
+			}
+
+		*/
+		history, _ = r.db.GetHistoryByTaskID(ctx, task.ID.String(), -1)
+		summary, err = r.model.GenerateSummary(ctx, task.Description, history)
+		log.Printf("Summary after step%d: %s\n", i, summary)
 	}
 
 	log.Printf("✅ Description completed: %s\n", task.Description)

@@ -18,6 +18,7 @@ const (
 type Team struct {
 	Members map[string]*Member
 	Task    *Task
+	Audits  *utils.AuditLogger
 }
 
 func (t *Team) GetLeader() *Member {
@@ -33,12 +34,8 @@ func (t *Team) GetMember(key string) *Member {
 }
 
 func (t *Team) Close() {
-	for _, member := range t.Members {
-		if member.Key != eventHandlerKey {
-			member.Audits.ClearBuffer()
-			member.Audits.ClearFile()
-		}
-	}
+	t.Audits.ClearBuffer()
+	t.Audits.ClearFile()
 }
 
 func (t *Team) GetMembersOptions() []string {
@@ -58,8 +55,7 @@ func (t *Team) GetMembersOptions() []string {
 type Member struct {
 	Key      string
 	WhenCall string
-	Task     *Task
-	Audits   *utils.AuditLogger
+	Task     *Task //Maybe later
 	workers.Worker
 }
 
