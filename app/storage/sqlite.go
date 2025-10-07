@@ -44,6 +44,7 @@ func NewSQLiteStorage() *SQLiteContextStorage {
 	_, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id TEXT NOT NULL,
             task_id TEXT NOT NULL,
             step_id INTEGER,
             role TEXT NOT NULL,
@@ -69,9 +70,9 @@ func (s *SQLiteContextStorage) SaveHistory(ctx context.Context, record Record) e
 	defer tx.Rollback()
 
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO records (task_id, step_id, role, content, tool, parameters, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, datetime(?))`,
-		record.TaskID, record.StepID, record.Role, record.Content, record.Tool, record.Parameters, record.CreatedAt.Format("2006-01-02 15:04:05"),
+		`INSERT INTO records (task_id, step_id, member_id, role, content, tool, parameters, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, datetime(?))`,
+		record.TaskID, record.SubTaskID, record.MemberID, record.Role, record.Content, record.Tool, record.Parameters, record.CreatedAt.Format("2006-01-02 15:04:05"),
 	)
 	if err != nil {
 		log.Printf("⚠️ Error saving record for task %s: %v", record.TaskID, err)
@@ -93,7 +94,7 @@ func (s *SQLiteContextStorage) SaveHistory(ctx context.Context, record Record) e
 
 func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID string, stepID int) ([]Record, error) {
 	query := `
-         SELECT id, task_id, step_id, role, content, tool, parameters, created_at
+         SELECT id, task_id, member_id, step_id, role, content, tool, parameters, created_at
          FROM records
          WHERE task_id = ? `
 	args := []any{taskID}
@@ -113,7 +114,7 @@ func (s *SQLiteContextStorage) GetHistoryByTaskID(ctx context.Context, taskID st
 	for rows.Next() {
 		var it Record
 		var createdAt string
-		if err = rows.Scan(&it.ID, &it.TaskID, &it.StepID, &it.Role, &it.Content, &it.Tool,
+		if err = rows.Scan(&it.ID, &it.TaskID, &it.MemberID, &it.SubTaskID, &it.Role, &it.Content, &it.Tool,
 			&it.Parameters, &createdAt); err != nil {
 			log.Printf("⚠️ Error scanning row for task %s: %v", taskID, err)
 			continue

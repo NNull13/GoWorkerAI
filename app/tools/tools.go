@@ -10,6 +10,7 @@ import (
 
 // Presets
 const (
+	PresetDelegate        = "delegate"
 	PresetApprover        = "approver"
 	PresetMinimal         = "minimal"
 	PresetReadOnly        = "readonly"
@@ -23,8 +24,9 @@ const (
 
 // Tools
 const (
+	delegate_task        = "delegate_task"
+	report_issue         = "report_issue"
 	true_or_false        = "true_or_false"
-	run_go_command       = "run_go_command"
 	write_file           = "write_file"
 	read_file            = "read_file"
 	delete_file          = "delete_file"
@@ -38,6 +40,7 @@ const (
 	extract_links_html   = "extract_links_html"
 	extract_text_content = "extract_text_content"
 	extract_meta_tags    = "extract_meta_tags"
+	run_go_command       = "run_go_command"
 )
 
 var (
@@ -63,8 +66,43 @@ type ToolTask struct {
 }
 
 var allTools = map[string]Tool{
+	report_issue: {
+		Name:        report_issue,
+		Description: "Report a problem, limitation, or need for assistance to the leader.",
+		Parameters: Parameter{
+			Type: "object",
+			Properties: map[string]any{
+				"reason": map[string]any{"type": "string"},
+			},
+			Required: []string{"reason"},
+		},
+	},
+	delegate_task: {
+		Name:        "delegate_task",
+		Description: "Assign a clear, atomic task required to complete the main task to a worker from the team.",
+		Parameters: Parameter{
+			Type: "object",
+			Properties: map[string]any{
+				"worker": map[string]any{
+					"type":        "string",
+					"description": "The worker to delegate the task to.",
+				},
+				"task": map[string]any{
+					"type":        "string",
+					"description": "A single, focused goal describing the exact action or deliverable expected.",
+					"maxLength":   100,
+				},
+				"context": map[string]any{
+					"type":        "string",
+					"description": "Optional brief context or background needed for the worker to execute the task effectively (avoid redundancy).",
+					"maxLength":   500,
+				},
+			},
+			Required: []string{"worker_id", "objective"},
+		},
+	},
 	true_or_false: {
-		Name:        "true_or_false",
+		Name:        true_or_false,
 		Description: "Binary decision with a brief reason.",
 		Parameters: Parameter{
 			Type: "object",
@@ -336,6 +374,10 @@ var allTools = map[string]Tool{
 
 func NewToolkitFromPreset(preset string) map[string]Tool {
 	switch preset {
+	case PresetDelegate:
+		return pick(
+			delegate_task,
+		)
 	case PresetApprover:
 		return pick(
 			true_or_false,
@@ -355,23 +397,9 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 		return pick(
 			read_file,
 			write_file,
-			append_file,
 			create_directory,
 			list_files,
 			delete_file,
-		)
-	case PresetFileOpsExtended:
-		return pick(
-			read_file,
-			write_file,
-			append_file,
-			create_directory,
-			list_files,
-			copy_file,
-			move_file,
-			delete_file,
-			search_file,
-			run_go_command,
 		)
 	case PresetScraperBasic:
 		return pick(
@@ -380,26 +408,14 @@ func NewToolkitFromPreset(preset string) map[string]Tool {
 			extract_links_html,
 			extract_meta_tags,
 		)
-	case PresetScraperFull:
-		return pick(
-			fetch_html_content,
-			extract_text_content,
-			extract_links_html,
-			extract_meta_tags,
-			write_file,
-			create_directory,
-			list_files,
-		)
-	case Custom:
-		return make(map[string]Tool)
 	case PresetAll:
-		fallthrough
-	default:
 		keys := make([]string, 0, len(allTools))
 		for k := range allTools {
 			keys = append(keys, k)
 		}
 		return pick(keys...)
+	default:
+		return make(map[string]Tool)
 	}
 }
 

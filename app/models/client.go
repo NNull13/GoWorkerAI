@@ -8,8 +8,11 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-playground/validator/v10"
 
 	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/tools"
@@ -23,6 +26,8 @@ const (
 )
 
 var _ Interface = &LLMClient{}
+
+var v = validator.New()
 
 type LLMClient struct {
 	restClient      *restclient.RestClient
@@ -53,15 +58,13 @@ func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LLMClient) TrueOrFalse(ctx context.Context, messages []Message) (bool, string, error) {
+func (mc *LLMClient) TrueOrFalse(ctx context.Context, message string) (bool, string, error) {
 	sys := Message{
 		Role:    "system",
 		Content: `Call only the tool true_or_false. Always return true or false and a brief reason (≤333 characters) of your decision.`,
 	}
 
-	msgs := make([]Message, 0, len(messages)+1) // +1 for system message
-	msgs = append(msgs, sys)
-	msgs = append(msgs, messages...)
+	msgs := []Message{sys, {Role: "user", Content: message}}
 	toolsPreset := tools.NewToolkitFromPreset(tools.PresetApprover)
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
@@ -101,37 +104,61 @@ func (mc *LLMClient) TrueOrFalse(ctx context.Context, messages []Message) (bool,
 	return false, "", fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
-func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, auditLogs []string,
-	history []storage.Record) (string, error) {
-	systemPrompt := `You will receive the task to be completed and a flat history of task execution entries in as a series of audit logs:
-	Your job: produce a compact, high-signal, strictly chronological timeline of the execution, enabling a separate 
-	evaluator to decide YES/NO readiness using this timeline if the task is complete
-	Rules for summary:
-	- Do not include the task itself in the summary.
-	- Do not include the audit logs in the summary.
-	- Only include in the timeline the executions that are relevant to the task.	
-	- Output ONLY a numbered list of entries.
-	- Start at 1 and increment by 1.
-	- Exactly one line per entry. No text before, between, or after entries.
-        - Write each entry as an explicit, past-tense execution statement (what was DONE), not an instruction.
-	- Required Output Format is:
-	"1. [Description of the first entry]\n2. [Description of the next entry]\n...\nN. [Final entry]\n".`
-
-	content := "Here is the task:\n" + task + "\nHere is the audit logs:"
-	for _, log := range auditLogs {
-		content += fmt.Sprintf("\n%s", log)
+func (mc *LLMClient) Delegate(ctx context.Context, options []string, task, sysPrompt string) (*DelegateAction, error) {
+	sys := Message{
+		Role:    "system",
+		Content: sysPrompt,
+	}
+	user := Message{
+		Role: "user",
+		Content: "Choose the single most suitable worker for the task using delegate_task tool based on the when call description and available tools\n" +
+			"\nTask to delegate:\n" + task + "\nAvailable workers:\n" + strings.Join(options, "\n"),
 	}
 
-	if len(history) > 0 {
-		content = "Here is the history of task execution. Summarize it:"
-		for _, entry := range history {
-			content += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | Step: %d | ID: %d",
-				entry.Role, entry.Content, entry.Tool, entry.StepID, entry.ID)
+	msgs := []Message{sys, user}
+	toolsPreset := tools.NewToolkitFromPreset(tools.PresetDelegate)
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
+		if err != nil {
+			return nil, err
 		}
+		if resp == nil || len(resp.Choices) == 0 {
+			continue
+		}
+
+		msg := resp.Choices[0].Message
+		if len(msg.ToolCalls) == 0 {
+			log.Printf("Delegate attempt %d: model returned no tool call, content=%v", attempt, msg)
+			continue
+		}
+
+		var action DelegateAction
+		if err = json.Unmarshal([]byte(msg.ToolCalls[0].Function.Arguments), &action); err != nil {
+			log.Printf("Delegate attempt %d: model returned invalid tool call arguments: %v", attempt, err)
+			continue
+		}
+		if err = v.Struct(action); err != nil {
+			log.Printf("Delegate attempt %d: model returned invalid tool call arguments: %v", attempt, err)
+			continue
+		}
+		return &action, nil
+
+	}
+
+	return nil, fmt.Errorf("delegate: model did not choose any team member after retries")
+}
+
+func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, history []storage.Record) (string, error) {
+	content := "Here is the task:\n" + task + "\n"
+
+	var recordHistory string
+	if len(history) > 0 {
+		recordHistory = storage.RecordListToString(history, 50)
+		content = "Here is the history of task execution. Summarize it:" + recordHistory
 	}
 
 	messages := []Message{
-		{Role: SystemRole, Content: systemPrompt},
+		{Role: SystemRole, Content: SummarySystemPrompt},
 		{Role: UserRole, Content: content},
 	}
 
@@ -145,8 +172,8 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, auditLogs
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LLMClient) Process(ctx context.Context, audit *log.Logger, messages []Message, toolkit map[string]tools.Tool,
-	taskID string, stepID int) (string, error) {
+func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.Logger, messages []Message,
+	toolkit map[string]tools.Tool, taskID string, stepID int) (string, error) {
 	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
 	if err != nil {
 		return "", err
@@ -167,7 +194,8 @@ func (mc *LLMClient) Process(ctx context.Context, audit *log.Logger, messages []
 
 	if err = mc.storage.SaveHistory(ctx, storage.Record{
 		TaskID:    taskID,
-		StepID:    int64(stepID),
+		MemberID:  memberKey,
+		SubTaskID: int64(stepID),
 		Role:      AssistantRole,
 		Content:   message.Content,
 		CreatedAt: time.Now(),
@@ -182,8 +210,8 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 	toolCalls []toolCall, taskID string, stepID int) (messages []Message) {
 	messages = append(messages, Message{Role: AssistantRole, ToolCalls: toolCalls})
 
-	for i, call := range toolCalls {
-		audit.Printf("▶️ Executing tool call %v: %v", i, call)
+	for _, call := range toolCalls {
+		audit.Printf("▶️ Executing: %v", call)
 		toolTask := tools.ToolTask{Key: call.Function.Name}
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
 		tool, exists := toolkit[toolTask.Key]
@@ -200,7 +228,7 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 
 		if err = mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
-			StepID:     int64(stepID),
+			SubTaskID:  int64(stepID),
 			Role:       ToolRole,
 			Tool:       tool.Name,
 			Content:    result,
@@ -249,7 +277,7 @@ func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, t
 		MaxTokens:   maxTokens,
 	}
 
-	return mc.sendRequestAndParse(ctx, payload, 3)
+	return mc.sendRequestAndParse(ctx, payload)
 }
 
 func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayload) {
@@ -265,7 +293,7 @@ func functionsToPayload(functions map[string]tools.Tool) (payload []functionPayl
 	return payload
 }
 
-func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload, maxRetries int) (*ResponseLLM, error) {
+func (mc *LLMClient) sendRequestAndParse(ctx context.Context, payload requestPayload) (*ResponseLLM, error) {
 	respBytes, status, err := mc.restClient.Post(ctx, endpoint, payload, nil)
 	if err == nil && status >= 200 && status < 300 {
 		if status == 400 {

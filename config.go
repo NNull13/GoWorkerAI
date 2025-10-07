@@ -6,8 +6,9 @@ import (
 	"GoWorkerAI/app/clients"
 	"GoWorkerAI/app/models"
 	"GoWorkerAI/app/storage"
+	"GoWorkerAI/app/teams"
+	"GoWorkerAI/app/teams/workers"
 	"GoWorkerAI/app/tools"
-	"GoWorkerAI/app/workers"
 )
 
 const (
@@ -16,27 +17,39 @@ const (
 	//  ...
 )
 
-var customWorkers = []workers.Interface{
-	workers.NewCoder(
-		"Golang",
-		//"You are a Golang engineer. Build a small Golang application that demonstrates your skills by implementing three functions in a package (e.g., `utils`): ",
-		"",
-		tools.PresetFileOpsBasic, // toolPreset
-		[]string{
-			"Write the most clean and efficient code.",
-			"Use Go's best practices and idiomatic code.",
-			"Use idiomatic Go naming conventions.",
-			"Write table-driven tests with descriptive case names for clarity.",
-			"Organize tests using `t.Run` subtests for each case.",
-			"Rely only on Go's standard library; avoid external dependencies.",
-			"Add clear, meaningful doc comments for all exported identifiers.",
-			"Follow idiomatic Go naming conventions for packages, functions, and variables.",
-			"Keep functions small, focused, and easy to read.",
-			"Ensure the code compiles, is idiomatic, and formatted. ",
-		}, //rules
-		5,
-	),
+var task = "Create a new minimal app with gin framework and a calculator service to resolve operations from a endpoint request from a string like `2 + (5 + 2 x 4)`  "
+
+var members = []*teams.Member{
+	{
+		Key: "leader", //Reserved key
+		Worker: &workers.Leader{
+			Base: workers.Base{
+				ToolsPreset: tools.PresetFileOpsBasic,
+				Rules: []string{
+					"Always avoid using commands that are not available in the tool kit.",
+					"Never suggest using go commands, still not supported.",
+				},
+			},
+		},
+	},
+	{
+		Key:    "event_handler", //Reserved key
+		Worker: &workers.EventHandler{},
+	},
+	teams.NewMember("coder", "This worker should be called every time is needed programming code.", &workers.Coder{
+		Base: workers.Base{
+			ToolsPreset: tools.PresetFileOpsBasic,
+			Rules: []string{
+				"You are an golang expert",
+				"You should use gin framework for the web server",
+				"You should use postgresql for the database",
+				"Always avoid using commands that are not available in the tool kit. Discard as it was done",
+				"Never use go commands, still not supported.",
+			},
+		},
+	}),
 }
+var team = teams.NewTeam(members, task)
 
 func getClients() []clients.Interface {
 	return []clients.Interface{clients.NewDiscordClient()}
