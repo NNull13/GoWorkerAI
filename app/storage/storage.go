@@ -32,8 +32,8 @@ func RecordListToString(records []Record, countSteps int) string {
 		}
 		for _, entry := range recordsSliced {
 			if entry.Role == "tool" || entry.Role == "assistant" {
-				historySummary += fmt.Sprintf("\nRole: %s | Content: %s | Tool: %s | TaskID: %s | SubTaskID: %d | ID: %d",
-					entry.Role, entry.Content, entry.Tool, entry.TaskID, entry.SubTaskID, entry.ID)
+				historySummary += fmt.Sprintf("\nRole: %s | Tool: %s |  Content: %s",
+					entry.Role, entry.Tool, entry.Content)
 			}
 		}
 	}

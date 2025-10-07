@@ -28,7 +28,7 @@ func getDBPath() string {
 		if err = os.MkdirAll(filepath.Dir(defaultPath), os.ModePerm); err != nil {
 			log.Fatalf("❌ Error creating data directory: %v", err)
 		}
-		log.Printf("📂 DB_PATH not set, using default: %s", defaultPath)
+		log.Printf("📂 DB_PATH not set, using default")
 		return defaultPath
 	}
 	return dbPath

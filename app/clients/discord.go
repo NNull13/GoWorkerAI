@@ -75,7 +75,7 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 	var msg string
 	switch strings.ToLower(contentSplitted[0]) {
 	case "status":
-		msg = c.getStatus(ctx, s, m)
+		msg = c.getStatus(s, m)
 	case "help", "!help":
 		msg = "Supported commands: !help, !task"
 	case "!task":
@@ -111,7 +111,7 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 			c.runtime.QueueEvent(ev)
 			msg = "Active task cancelled."
 		case "status":
-			msg = c.getStatus(ctx, s, m)
+			msg = c.getStatus(s, m)
 		default:
 			msg = "Unknown task command. Use: !task with create | cancel | status"
 		}
@@ -130,9 +130,9 @@ func (c *DiscordClient) onMessageCreate(s *discordgo.Session, m *discordgo.Messa
 	s.ChannelMessageSend(m.ChannelID, msg)
 }
 
-func (c *DiscordClient) getStatus(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate) string {
+func (c *DiscordClient) getStatus(s *discordgo.Session, m *discordgo.MessageCreate) string {
 	s.ChannelMessageSend(m.ChannelID, "Processing...")
-	return c.runtime.GetTaskStatus(ctx)
+	return c.runtime.GetTaskStatus()
 }
 
 func (c *DiscordClient) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {

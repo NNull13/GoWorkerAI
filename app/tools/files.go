@@ -205,7 +205,7 @@ func writeToFile(_ string, filename, content string) (string, error) {
 		return "", err
 	}
 	log.Printf("✅ File %s written successfully.\n", path)
-	return "Successfully wrote file " + path, nil
+	return "Successfully wrote file " + path + " content: " + content, nil
 }
 
 func readFile(_ string, filename string) (string, error) {

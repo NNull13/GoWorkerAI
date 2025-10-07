@@ -58,13 +58,7 @@ func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64
 	return response.Choices[0].Message.Content, nil
 }
 
-func (mc *LLMClient) TrueOrFalse(ctx context.Context, message string) (bool, string, error) {
-	sys := Message{
-		Role:    "system",
-		Content: `Call only the tool true_or_false. Always return true or false and a brief reason (≤333 characters) of your decision.`,
-	}
-
-	msgs := []Message{sys, {Role: "user", Content: message}}
+func (mc *LLMClient) TrueOrFalse(ctx context.Context, msgs []Message) (bool, string, error) {
 	toolsPreset := tools.NewToolkitFromPreset(tools.PresetApprover)
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
@@ -104,15 +98,15 @@ func (mc *LLMClient) TrueOrFalse(ctx context.Context, message string) (bool, str
 	return false, "", fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
-func (mc *LLMClient) Delegate(ctx context.Context, options []string, task, sysPrompt string) (*DelegateAction, error) {
+func (mc *LLMClient) Delegate(ctx context.Context, options []string, context, sysPrompt string) (*DelegateAction, error) {
 	sys := Message{
 		Role:    "system",
 		Content: sysPrompt,
 	}
 	user := Message{
 		Role: "user",
-		Content: "Choose the single most suitable worker for the task using delegate_task tool based on the when call description and available tools\n" +
-			"\nTask to delegate:\n" + task + "\nAvailable workers:\n" + strings.Join(options, "\n"),
+		Content: "Context of the plan and execution: \n" + context + "\nAvailable workers:\n" + strings.Join(options, "\n") +
+			"\n You should choose the next sub task and the single most suitable worker using delegate_task tool based on the when call description and available tools",
 	}
 
 	msgs := []Message{sys, user}
@@ -162,7 +156,7 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, history [
 		{Role: UserRole, Content: content},
 	}
 
-	response, err := mc.generateResponse(ctx, messages, nil, 0.25, -1)
+	response, err := mc.generateResponse(ctx, messages, nil, 0.10, 3850)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +175,7 @@ func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.L
 
 	message := response.Choices[0].Message
 	for i := 0; i < 5; i++ {
-		newMessages := mc.handleToolCalls(ctx, audit, toolkit, message.ToolCalls, taskID, stepID)
+		newMessages := mc.handleToolCalls(ctx, audit, toolkit, message.ToolCalls, taskID, stepID, memberKey)
 		messages = append(messages, newMessages...)
 		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
 			return "", err
@@ -207,28 +201,29 @@ func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.L
 }
 
 func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, toolkit map[string]tools.Tool,
-	toolCalls []toolCall, taskID string, stepID int) (messages []Message) {
+	toolCalls []toolCall, taskID string, stepID int, memberKey string) (messages []Message) {
 	messages = append(messages, Message{Role: AssistantRole, ToolCalls: toolCalls})
 
 	for _, call := range toolCalls {
-		audit.Printf("▶️ Executing: %v", call)
+		log.Printf("▶️ Executing: %v", call)
 		toolTask := tools.ToolTask{Key: call.Function.Name}
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
 		tool, exists := toolkit[toolTask.Key]
 		if !exists || tool.HandlerFunc == nil {
-			audit.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
+			log.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
 			continue
 		}
 
 		result, err := tool.HandlerFunc(toolTask)
 		if err != nil {
-			audit.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
+			log.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
 			result = err.Error()
 		}
 
 		if err = mc.storage.SaveHistory(ctx, storage.Record{
 			TaskID:     taskID,
 			SubTaskID:  int64(stepID),
+			MemberID:   memberKey,
 			Role:       ToolRole,
 			Tool:       tool.Name,
 			Content:    result,

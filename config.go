@@ -45,6 +45,7 @@ var members = []*teams.Member{
 				"You should use postgresql for the database",
 				"Always avoid using commands that are not available in the tool kit. Discard as it was done",
 				"Never use go commands, still not supported.",
+				"Avoid partial updates on files, always try to write the entire file",
 			},
 		},
 	}),
@@ -52,7 +53,7 @@ var members = []*teams.Member{
 var team = teams.NewTeam(members, task)
 
 func getClients() []clients.Interface {
-	return []clients.Interface{clients.NewDiscordClient()}
+	return nil //[]clients.Interface{clients.NewDiscordClient()}
 }
 
 func getDB() storage.Interface {

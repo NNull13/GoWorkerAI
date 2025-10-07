@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/tools"
@@ -25,7 +26,7 @@ func main() {
 		m.SetToolKit(toolsPreset)
 	}
 
-	auditLogger, err := utils.NewWorkerLogger("team_logs", colors[0], 10000)
+	auditLogger, err := utils.NewWorkerLogger("team_logs"+time.Now().String(), colors[0], 10000)
 	if err != nil {
 		log.Fatalf("failed to create logger for the team: %v", err)
 	}

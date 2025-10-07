@@ -19,7 +19,7 @@ type Interface interface {
 	Think(context.Context, []Message, float64, int) (string, error)
 	Process(context.Context, string, *log.Logger, []Message, map[string]tools.Tool, string, int) (string, error)
 	Delegate(context.Context, []string, string, string) (*DelegateAction, error)
-	TrueOrFalse(context.Context, string) (bool, string, error)
+	TrueOrFalse(context.Context, []Message) (bool, string, error)
 	GenerateSummary(context.Context, string, []storage.Record) (string, error)
 }
 

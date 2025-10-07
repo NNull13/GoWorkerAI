@@ -19,6 +19,7 @@
 logs/
 generations/
 data/
+playground/
 
 # Go workspace file
 go.work
