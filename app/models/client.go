@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -51,7 +50,7 @@ func NewLLMClient(db storage.Interface, model, embModel string) *LLMClient {
 }
 
 func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64, maxTokens int) (string, error) {
-	response, err := mc.generateResponse(ctx, messages, nil, temp, maxTokens)
+	response, err := mc.generateResponse(ctx, messages, nil, temp, maxTokens, NoneToolChoice)
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +60,7 @@ func (mc *LLMClient) Think(ctx context.Context, messages []Message, temp float64
 func (mc *LLMClient) TrueOrFalse(ctx context.Context, msgs []Message) (bool, string, error) {
 	toolsPreset := tools.NewToolkitFromPreset(tools.PresetApprover)
 	for attempt := 0; attempt < 3; attempt++ {
-		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
+		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1, RequiredToolChoice)
 		if err != nil {
 			return false, "", err
 		}
@@ -98,21 +97,27 @@ func (mc *LLMClient) TrueOrFalse(ctx context.Context, msgs []Message) (bool, str
 	return false, "", fmt.Errorf("yes/no: model did not call approve_plan or reject_plan after retries")
 }
 
-func (mc *LLMClient) Delegate(ctx context.Context, options []string, context, sysPrompt string) (*DelegateAction, error) {
+func (mc *LLMClient) Delegate(ctx context.Context, options, context, sysPrompt string) (*DelegateAction, error) {
 	sys := Message{
-		Role:    "system",
-		Content: sysPrompt,
+		Role: "system",
+		Content: sysPrompt + `\n\nTooling policy:
+- Use tool delegate_task to delegate atomic subtasks to a specific worker.
+- If no worker fits or information is missing, choose "none" as worker to avoid task.
+- If the task is finished, you must choose "none" as worker and "finish" as task and the reason of the finish as context.`,
 	}
 	user := Message{
 		Role: "user",
-		Content: "Context of the plan and execution: \n" + context + "\nAvailable workers:\n" + strings.Join(options, "\n") +
-			"\n You should choose the next sub task and the single most suitable worker using delegate_task tool based on the when call description and available tools",
+		Content: "Context:\n" + context +
+			"\nAvailable workers:\n" + options +
+			"\nPick the single best worker and the next subtask now. " +
+			"Always respond by calling delegate_task(Worker, Task, Context). " +
+			"If you judge the overall task finished, call delegate_task with Worker=\"none\" and Task=\"finish\".",
 	}
 
 	msgs := []Message{sys, user}
 	toolsPreset := tools.NewToolkitFromPreset(tools.PresetDelegate)
 	for attempt := 0; attempt < 3; attempt++ {
-		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1)
+		resp, err := mc.generateResponse(ctx, msgs, toolsPreset, 0.13, -1, RequiredToolChoice)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +161,7 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, history [
 		{Role: UserRole, Content: content},
 	}
 
-	response, err := mc.generateResponse(ctx, messages, nil, 0.10, 3850)
+	response, err := mc.generateResponse(ctx, messages, nil, 0.10, 3850, NoneToolChoice)
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +173,8 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, history [
 
 func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.Logger, messages []Message,
 	toolkit map[string]tools.Tool, taskID string, stepID int) (string, error) {
-	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1)
+	toolChoice := AutoToolChoice
+	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1, toolChoice)
 	if err != nil {
 		return "", err
 	}
@@ -177,7 +183,7 @@ func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.L
 	for i := 0; i < 5; i++ {
 		newMessages := mc.handleToolCalls(ctx, audit, toolkit, message.ToolCalls, taskID, stepID, memberKey)
 		messages = append(messages, newMessages...)
-		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1); err != nil {
+		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1, toolChoice); err != nil {
 			return "", err
 		}
 		message = response.Choices[0].Message
@@ -250,7 +256,8 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 	return messages
 }
 
-func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool, temp float64, maxTokens int) (*ResponseLLM, error) {
+func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, tools map[string]tools.Tool,
+	temp float64, maxTokens int, toolChoice any) (*ResponseLLM, error) {
 	messagesCurated := make([]Message, 0, len(messages))
 	hasUserPrompt := false
 	for _, msg := range messages {
@@ -264,12 +271,14 @@ func (mc *LLMClient) generateResponse(ctx context.Context, messages []Message, t
 	if !hasUserPrompt {
 		return nil, errors.New("no user prompt found")
 	}
+
 	payload := requestPayload{
 		Model:       mc.model,
 		Tools:       functionsToPayload(tools),
 		Messages:    messagesCurated,
 		Temperature: temp,
 		MaxTokens:   maxTokens,
+		ToolChoice:  toolChoice,
 	}
 
 	return mc.sendRequestAndParse(ctx, payload)

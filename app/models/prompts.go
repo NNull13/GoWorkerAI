@@ -11,7 +11,6 @@ OBJECTIVES:
 
 CONTENT RULES:
 - Steps must be actionable, testable, and as small as reasonably possible.
-- If inputs are missing, include [Request X from stakeholder] or equivalent.
 
 HARD OUTPUT FORMAT:
 - Output ONLY a numbered list of steps.

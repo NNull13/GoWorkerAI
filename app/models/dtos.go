@@ -4,6 +4,12 @@ import (
 	"GoWorkerAI/app/tools"
 )
 
+const (
+	AutoToolChoice     = "auto"
+	NoneToolChoice     = "none"
+	RequiredToolChoice = "required"
+)
+
 type toolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
@@ -44,6 +50,15 @@ type requestPayload struct {
 	Temperature float64           `json:"temperature"`
 	MaxTokens   int               `json:"max_tokens"`
 	Tools       []functionPayload `json:"tools"`
+	ToolChoice  any               `json:"tool_choice,omitempty"` // "auto" | "none" | ToolChoiceFunction
+}
+
+type ToolChoiceFunction struct {
+	Type     string                     `json:"type"` // "function"
+	Function ToolChoiceFunctionSelector `json:"function"`
+}
+type ToolChoiceFunctionSelector struct {
+	Name string `json:"name"`
 }
 
 type embeddingRequestPayload struct {

@@ -97,7 +97,7 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	team := r.team
 	task := team.Task
 	leader := team.GetLeader()
-	teamOptions := r.team.GetMembersOptions()
+	teamOptions := strings.Join(r.team.GetMembersOptions(), "\n")
 	r.mu.Unlock()
 
 	if task == nil {
@@ -106,7 +106,7 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	}
 
 	log.Printf("▶️ Starting task: %s", task.Description)
-	messages := models.CreateMessages(task.Description, leader.Prompt(models.PlanSystemPrompt))
+	messages := models.CreateMessages(task.Description, leader.Prompt(models.PlanSystemPrompt+"\n"+teamOptions))
 
 	planText, err := r.model.Think(ctx, messages, 0.25, -1)
 	if err != nil {
@@ -114,6 +114,7 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 		return err
 	}
 
+	//planText := task.Description
 	team.Audits.Printf("✅ Plan generated:\n%s\n", planText)
 
 	var i int
@@ -122,12 +123,16 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	for {
 		i++
 		var delegateAction *models.DelegateAction
-		summary := strings.Join(team.Audits.GetLastLogs(100), "\n")
-		prompt := leader.Prompt(summary + "\nLast actions logs:\n" + storage.RecordListToString(history, 100))
+		summary := strings.Join(team.Audits.GetLastLogs(10), "\n")
+		prompt := leader.Prompt(summary + "\nLast actions logs:\n" + storage.RecordListToString(history, 10))
 		delegateAction, err = r.model.Delegate(ctx, teamOptions, planText, prompt)
 		if err != nil || delegateAction == nil {
 			log.Printf("❌ Skipping step %d. Error delegating: %v", i, err)
 			continue
+		}
+		if delegateAction.Worker == "none" && delegateAction.Task == "finish" {
+			team.Audits.Printf("✅ Plan finished: %s", delegateAction.Context)
+			break
 		}
 
 		worker := r.team.GetMember(delegateAction.Worker)

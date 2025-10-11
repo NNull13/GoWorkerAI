@@ -42,10 +42,10 @@ var members = []*teams.Member{
 			Rules: []string{
 				"You are an golang expert",
 				"You should use gin framework for the web server",
-				"You should use postgresql for the database",
 				"Always avoid using commands that are not available in the tool kit. Discard as it was done",
 				"Never use go commands, still not supported.",
 				"Avoid partial updates on files, always try to write the entire file",
+				"Always add test files for the new code",
 			},
 		},
 	}),

@@ -19,11 +19,6 @@ Principles:
 - Prefer minimal tool calls; avoid repetition and duplicated work.
 - Maintain a concise internal plan and update it as progress is made.
 - Optimize for reliability and traceability over speed.
-
-Tooling policy:
-- Use tool assign_task to delegate atomic subtasks to a specific worker.
-- Use your available inspection/validation expertise to sanity-check results.
-- If no worker fits or information is missing, choose "none" as worker to avoid task.
 `
 	if l.Rules != nil {
 		sys = sys + "\nRULES:" + strings.Join(l.Rules, "\n")
