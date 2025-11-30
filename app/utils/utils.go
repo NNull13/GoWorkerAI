@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xlab/treeprint"
 )
@@ -83,4 +84,28 @@ func GetColors() []string {
 		"\033[32m", // green
 		"\033[33m", // yellow
 	}
+}
+
+func LoadFilesFromDir(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".txt") {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+
+	return files, nil
+}
+
+func ReadFile(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

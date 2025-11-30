@@ -4,7 +4,7 @@ import (
 	"errors"
 	"log"
 	"os"
-	
+
 	"GoWorkerAI/app/utils"
 )
 
@@ -78,7 +78,7 @@ var allTools = map[string]Tool{
 		},
 	},
 	delegate_task: {
-		Name:        "delegate_task",
+		Name:        delegate_task,
 		Description: "Assign a clear, atomic task required to complete the main task to a worker from the team.",
 		Parameters: Parameter{
 			Type: "object",

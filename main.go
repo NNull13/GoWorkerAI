@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"GoWorkerAI/app/rag"
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/tools"
 	"GoWorkerAI/app/utils"
@@ -32,7 +33,12 @@ func main() {
 	}
 	team.Audits = auditLogger
 
-	r := runtime.NewRuntime(team, model, db)
+	rag := rag.NewClient(model)
+	if err = rag.InitContext(appCtx); err != nil {
+		log.Fatalf("failed to init rag: %v", err)
+	}
+
+	r := runtime.NewRuntime(team, model, db, rag)
 	for _, client := range clients {
 		client.Subscribe(r)
 	}

@@ -13,7 +13,7 @@ import (
 
 const (
 	gptModel       = "openai/gpt-oss-20b"
-	embeddingModel = "text-embedding-nomic-embed-text-v1.5@q8_0"
+	embeddingModel = "text-embedding-qwen3-embedding-4b"
 	//  ...
 )
 

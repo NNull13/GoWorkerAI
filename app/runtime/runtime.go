@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"GoWorkerAI/app/models"
+	"GoWorkerAI/app/rag"
 	"GoWorkerAI/app/storage"
 	"GoWorkerAI/app/teams"
 )
@@ -19,6 +20,7 @@ type Runtime struct {
 	mu         sync.RWMutex
 	team       *teams.Team
 	model      models.Interface
+	rag        rag.Interface
 	db         storage.Interface
 	events     chan Event
 	activeTask atomic.Bool
@@ -26,10 +28,11 @@ type Runtime struct {
 	context    context.Context
 }
 
-func NewRuntime(t *teams.Team, m models.Interface, db storage.Interface) *Runtime {
+func NewRuntime(t *teams.Team, m models.Interface, db storage.Interface, rag rag.Interface) *Runtime {
 	rt := &Runtime{
 		team:   t,
 		model:  m,
+		rag:    rag,
 		events: make(chan Event, 1024),
 		db:     db,
 	}

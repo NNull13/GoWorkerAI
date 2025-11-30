@@ -21,6 +21,7 @@ type Interface interface {
 	Delegate(context.Context, string, string, string) (*DelegateAction, error)
 	TrueOrFalse(context.Context, []Message) (bool, string, error)
 	GenerateSummary(context.Context, string, []storage.Record) (string, error)
+	EmbedText(context.Context, string) ([]float32, error)
 }
 
 type Message struct {
