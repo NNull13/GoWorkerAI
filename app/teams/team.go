@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"GoWorkerAI/app/teams/workers"
 	"GoWorkerAI/app/utils"
 )
 
@@ -53,17 +52,19 @@ func (t *Team) GetMembersOptions() []string {
 }
 
 type Member struct {
-	Key      string
-	WhenCall string
-	Task     *Task //Maybe later
-	workers.Worker
+	Key          string
+	SystemPrompt string
+	WhenCall     string
+	Task         *Task
+	Interface
 }
 
-func NewMember(key, whenCall string, worker workers.Worker) *Member {
+func NewMember(key, systemPrompt, whenCall string, worker Interface) *Member {
 	return &Member{
-		Key:      key,
-		WhenCall: whenCall,
-		Worker:   worker,
+		Key:          key,
+		SystemPrompt: systemPrompt,
+		WhenCall:     whenCall,
+		Interface:    worker,
 	}
 }
 

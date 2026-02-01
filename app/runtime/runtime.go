@@ -47,16 +47,21 @@ func handlePanic() {
 }
 
 func (r *Runtime) Start(ctx context.Context) {
-	runtimeCtx, runtimeCancel := context.WithCancel(ctx)
 	taskRunning := r.activeTask.Load()
 	defer handlePanic()
 
 	if !taskRunning && r.team.Task != nil && r.team.Task.Description != "" {
 		r.activeTask.Store(true)
+		taskCtx, taskCancel := context.WithCancel(context.Background())
+		r.mu.Lock()
+		r.context = taskCtx
+		r.cancelFunc = taskCancel
+		r.mu.Unlock()
+
 		go func() {
 			defer r.activeTask.Store(false)
 
-			if err := r.runTask(runtimeCtx, runtimeCancel); err != nil {
+			if err := r.runTask(taskCtx, taskCancel); err != nil {
 				log.Printf("Error running task: %v", err)
 			}
 		}()
@@ -65,7 +70,7 @@ func (r *Runtime) Start(ctx context.Context) {
 
 	for {
 		select {
-		case <-runtimeCtx.Done():
+		case <-ctx.Done():
 			return
 		case ev, ok := <-r.events:
 			if !ok {

@@ -100,7 +100,7 @@ func (mc *LLMClient) TrueOrFalse(ctx context.Context, msgs []Message) (bool, str
 func (mc *LLMClient) Delegate(ctx context.Context, options, context, sysPrompt string) (*DelegateAction, error) {
 	sys := Message{
 		Role: "system",
-		Content: sysPrompt + `\n\nTooling policy:
+		Content: sysPrompt + `Tooling policy:
 - Use tool delegate_task to delegate atomic subtasks to a specific worker.
 - If no worker fits or information is missing, choose "none" as worker to avoid task.
 - If the task is finished, you must choose "none" as worker and "finish" as task and the reason of the finish as context.`,
@@ -174,23 +174,20 @@ func (mc *LLMClient) GenerateSummary(ctx context.Context, task string, history [
 func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.Logger, messages []Message,
 	toolkit map[string]tools.Tool, taskID string, stepID int) (string, error) {
 	toolChoice := AutoToolChoice
-	response, err := mc.generateResponse(ctx, messages, toolkit, 0.2, -1, toolChoice)
+	temp, maxTokens := 0.15, -1
+	response, err := mc.generateResponse(ctx, messages, toolkit, temp, maxTokens, toolChoice)
 	if err != nil {
 		return "", err
 	}
 
 	message := response.Choices[0].Message
-	for i := 0; i < 5; i++ {
-		newMessages := mc.handleToolCalls(ctx, audit, toolkit, message.ToolCalls, taskID, stepID, memberKey)
-		messages = append(messages, newMessages...)
-		if response, err = mc.generateResponse(ctx, messages, toolkit, 0.2, -1, toolChoice); err != nil {
-			return "", err
-		}
-		message = response.Choices[0].Message
-		if len(message.ToolCalls) == 0 {
-			break
-		}
+	toolChoice = NoneToolChoice
+	newMessages := mc.handleToolCalls(ctx, audit, toolkit, message.ToolCalls, taskID, stepID, memberKey)
+	messages = append(messages, newMessages...)
+	if response, err = mc.generateResponse(ctx, messages, toolkit, temp, maxTokens, toolChoice); err != nil {
+		return "", err
 	}
+	message = response.Choices[0].Message
 
 	if err = mc.storage.SaveHistory(ctx, storage.Record{
 		TaskID:    taskID,
@@ -216,7 +213,11 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
 		tool, exists := toolkit[toolTask.Key]
 		if !exists || tool.HandlerFunc == nil {
-			log.Printf("⚠️ Tool not found or missing handler: %s", toolTask.Key)
+			messages = append(messages, Message{
+				Role:       ToolRole,
+				Content:    fmt.Sprintf("ERROR: tool '%s' not found or missing handler", toolTask.Key),
+				ToolCallID: call.ID,
+			})
 			continue
 		}
 

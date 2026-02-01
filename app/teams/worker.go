@@ -1,14 +1,13 @@
-package workers
+package teams
 
 import (
 	"fmt"
+	"strings"
 
 	"GoWorkerAI/app/tools"
 )
 
-const maxSteps = 20
-
-type Worker interface {
+type Interface interface {
 	Prompt(context string) string
 	GetToolsOptions() []string
 	GetToolsPreset() string
@@ -17,27 +16,27 @@ type Worker interface {
 	GetToolKit() map[string]tools.Tool
 }
 
-type Base struct {
-	Prompt      string
+type Worker struct {
+	System      string
 	Rules       []string
 	ToolsPreset string
 	Toolkit     map[string]tools.Tool
 }
 
-func (w *Base) SetToolKit(tk map[string]tools.Tool) {
+func (w *Worker) SetToolKit(tk map[string]tools.Tool) {
 	if w != nil {
 		w.Toolkit = tk
 	}
 }
 
-func (w *Base) GetToolKit() map[string]tools.Tool {
+func (w *Worker) GetToolKit() map[string]tools.Tool {
 	if w == nil {
 		return nil
 	}
 	return w.Toolkit
 }
 
-func (w *Base) GetToolsOptions() []string {
+func (w *Worker) GetToolsOptions() []string {
 	if w == nil {
 		return nil
 	}
@@ -48,11 +47,11 @@ func (w *Base) GetToolsOptions() []string {
 	return options
 }
 
-func (w *Base) GetToolsPreset() string {
+func (w *Worker) GetToolsPreset() string {
 	return w.ToolsPreset
 }
 
-func (w *Base) AddTools(list []tools.Tool) {
+func (w *Worker) AddTools(list []tools.Tool) {
 	if w == nil {
 		return
 	}
@@ -62,4 +61,17 @@ func (w *Base) AddTools(list []tools.Tool) {
 	for _, tool := range list {
 		w.Toolkit[tool.Name] = tool
 	}
+}
+
+func (w *Worker) Prompt(context string) string {
+	var sys string
+	if w.Rules != nil {
+		sys = w.System + "\nRULES:" + strings.Join(w.Rules, "\n")
+		sys += "\n\nMOST IMPORTANT RULE: If a tool returns status=success or done=true, do not call any tool again for the same task. Respond to the user."
+	}
+	if context != "" {
+		sys = sys + "CONTEXT:" + context
+	}
+
+	return sys
 }

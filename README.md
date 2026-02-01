@@ -1,63 +1,157 @@
+# GoWorkerAI 🤖
 
-# GoWorkerAI
+> A flexible, extensible AI agent framework for autonomous task execution with specialized workers and MCP plugin support.
 
-GoWorkerAI is an AI-powered worker builder in Go. It aims to help developers automate tasks
-
----
-
-## 🚀 Installation
-
-1. **clone the repository**  
-   open a terminal and run the following commands:
-
-   ```bash
-   git clone https://github.com/NNull13/GoWorkerAI.git
-   cd GoWorkerAI
-   ```
-
-2. **install dependencies**  
-   ensure all necessary dependencies are installed by running:
-
-   ```bash
-   go mod tidy
-   ```
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## ⚙️ Configuration
+## ✨ What is GoWorkerAI?
 
-Set environment variables to customize the model client:
+GoWorkerAI is a **multi-agent orchestration framework** where specialized AI workers collaborate to complete complex tasks autonomously. Built in Go for performance, with YAML configuration for flexibility.
 
-- `LLM_BASE_URL` – base URL for the LLM API (default `http://localhost:1234`)
-- `LLM_MODEL` – model name used for text generation (default `openai/gpt-oss-20b`)
-- `WORKER_FOLDER` – folder where the worker will work (default no restriction, recommended to be set)
+### Key Features
 
----
-
-
-## 👥 Collaborations
-
-1. **fork the repository**
-2. **create a new branch**:
-
-   ```bash
-   git checkout -b feature/new-feature
-   ```
-
-3. **make your changes** and commit:
-
-   ```bash
-   git commit -am 'add new feature'
-   ```
-
-4. **push to your branch**:
-
-   ```bash
-   git push origin feature/new-feature
-   ```
-
-5. **open a pull request** and describe your changes
+- 🔥 **Multi-Agent System** - Leader coordinates specialized workers (Coder, FileManager, etc.)
+- 🔌 **MCP Protocol** - Extend with plugins in any language (Python, Node.js, Rust)
+- 🛠️ **Native Tools** - Built-in file operations, web scraping, and more
+- 📝 **YAML Config** - Define teams and MCPs declaratively
+- 🤝 **Local Model Optimized** - Works great with LM Studio, Ollama, etc.
+- 💾 **Full History** - SQLite tracking with audit logs
+- 🎯 **Discord Integration** - Optional bot for remote control
 
 ---
 
-### crafted with ❤️ by NoName13
+## 🚀 Quick Start
+
+### 1. Install
+
+```bash
+git clone https://github.com/NNull13/GoWorkerAI.git
+cd GoWorkerAI
+go mod tidy
+```
+
+### 2. Configure
+
+```bash
+# Copy example config
+cp config.example.yaml config.yaml
+
+# Set your LLM endpoint
+export LLM_BASE_URL="http://localhost:1234"
+export WORKER_FOLDER="./playground"
+```
+
+### 3. Run
+
+```bash
+    node run-mcps.js
+
+    go run .
+```
+
+**That's it!** The default team will start executing the configured task.
+
+---
+
+## 📖 Documentation
+
+- **[Quick Start Guide](docs/QUICKSTART.md)** - Detailed tutorial with examples
+- **[MCP Guide](docs/MCP_GUIDE.md)** - Create and use custom plugins
+- **[Configuration Reference](config.example.yaml)** - All available options
+- **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute
+
+---
+
+## 🔌 MCP Plugin System
+
+Extend functionality without recompiling:
+
+```yaml
+teams:
+  default:
+    members:
+      - key: coder
+        mcps:
+          # Add PostgreSQL access
+          - name: postgres
+            command: npx
+            args: ["-y", "@modelcontextprotocol/server-postgres"]
+            env:
+              DATABASE_URL: "${DATABASE_URL}"
+```
+
+See [MCP Guide](docs/MCP_GUIDE.md) for official plugins and how to create custom ones.
+
+---
+
+## 🛠️ Architecture
+
+```
+┌─────────────┐
+│   Leader    │  Plans & delegates
+└──────┬──────┘
+       │
+   ┌───┴────┬──────────┐
+   ▼        ▼          ▼
+┌──────┐ ┌──────┐ ┌──────┐
+│Worker│ │Worker│ │Worker│
+│      │ │      │ │      │
+└──────┘ └──────┘ └──────┘
+   │       │          │
+   └───────┴──────────┘
+           │
+   ┌───────▼────────┐
+   │  Native Tools  │
+   │  + MCP Plugins │
+   └────────────────┘
+```
+
+- **Leader**: Strategic planning and task delegation
+- **Specialized Workers**: Execute specific types of work
+- **Tools & MCPs**: Extend capabilities on demand
+
+---
+
+## 💡 Example Use Cases
+
+- **Code Generation**: Automated project scaffolding
+- **Data Analysis**: Query databases, process files
+- **Web Automation**: Scrape data, interact with APIs
+- **DevOps**: Deploy, monitor, manage infrastructure
+- **Research**: Gather info, summarize, analyze
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
+
+**Ways to contribute:**
+- 🔧 Add native tools
+- 🔌 Create MCP and/or plugins
+- 📚 Improve documentation
+- 🐛 Report bugs
+- ✨ Request features
+
+---
+
+## 📝 License
+
+This project is open source under the MIT License.
+
+---
+
+## 🙏 Acknowledgments
+
+- Built with [Model Context Protocol](https://modelcontextprotocol.io/)
+- Inspired by multi-agent systems and autonomous AI
+- Thanks to all contributors!
+
+---
+
+### Crafted with ❤️ by [NoName13](https://github.com/NNull13)
+
+**Questions?** [Open an issue](https://github.com/NNull13/GoWorkerAI/issues) • **Want updates?** Star the repo ⭐

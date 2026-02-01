@@ -1,0 +1,95 @@
+# GoWorkerAI Configuration Example
+# Copy this file to config.yaml and customize
+
+# Clients - External connectors for receiving interactions/events
+clients:
+  # Discord Bot
+  - type: discord
+    enabled: false  # Set to true to enable
+    config:
+      token: "${DISCORD_TOKEN}"           # Required: Bot token
+      channel_id: "${DISCORD_CHANNEL_ID}" # Optional: Default channel
+      admin_id: "${DISCORD_ADMIN}"        # Optional: Admin user ID
+
+  # Add more clients here in the future:
+  # - type: slack
+  #   enabled: false
+  #   config:
+  #     token: "${SLACK_TOKEN}"
+
+  # - type: telegram
+  #   enabled: false
+  #   config:
+  #     token: "${TELEGRAM_TOKEN}"
+
+# Global MCPs - Available to all workers across all teams
+global_mcps:
+   - name: filesystem
+     command: npx
+     args: ["-y", "@modelcontextprotocol/server-filesystem", "./playground"]
+     env:
+       ALLOWED_DIRECTORIES: "./playground"
+
+# Teams configuration
+teams:
+  # Default coding team
+  default:
+    task: "Create a new minimal app with gin framework and a calculator service to resolve operations from a endpoint request from a string like `2 + (5 + 2 x 4)`"
+
+    members:
+      # Leader - Required for every team
+      - key: leader
+        system: "Prompt"
+        worker_type: leader
+        rules:
+          - "Always avoid using commands that are not available in the tool kit."
+          - "Never suggest using go commands, still not supported."
+
+      # Event Handler - Required for Discord/external events
+      - key: event_handler
+        system: "Prompt"
+
+      # Coder - Main developer
+      - key: coder
+        system: "Prompt"
+        when_call: "This worker should be called every time programming code is needed."
+        tools_preset: file_basic
+        rules:
+          - "You are a golang expert"
+          - "You should use gin framework for the web server"
+          - "Always avoid using commands that are not available in the tool kit."
+          - "Never use go commands, still not supported."
+          - "Avoid partial updates on files, always try to write the entire file"
+          - "Always add test files for the new code"
+
+        # MCPs specific to this worker
+        # mcps:
+        #   - name: github
+        #     command: npx
+        #     args: ["-y", "@modelcontextprotocol/server-github"]
+        #     env:
+        #       GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+# MCP Examples:
+#
+# 1. Filesystem (Node.js):
+#    command: npx
+#    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+#
+# 2. PostgreSQL (Node.js):
+#    command: npx
+#    args: ["-y", "@modelcontextprotocol/server-postgres"]
+#    env:
+#      DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
+#
+# 3. GitHub (Node.js):
+#    command: npx
+#    args: ["-y", "@modelcontextprotocol/server-github"]
+#    env:
+#      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+#
+# 4. Custom Python MCP:
+#    command: python
+#    args: ["-m", "my_custom_mcp"]
+#    env:
+#      API_KEY: "${MY_API_KEY}"

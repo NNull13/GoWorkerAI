@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+goworkerai
 
 # Test binary, built with `go test -c`
 *.test
@@ -21,6 +22,7 @@ generations/
 data/
 playground/
 rag_data/
+.backup/
 
 # Go workspace file
 go.work
@@ -28,3 +30,13 @@ go.work.sum
 
 # env file
 .env
+
+# config files
+config.yaml
+
+# mcps files
+.mcp.json
+.mcps/
+
+# npm config files
+.npmrc

@@ -24,24 +24,42 @@ type DiscordClient struct {
 	channelID string
 }
 
-func NewDiscordClient() *DiscordClient {
-	token := os.Getenv("DISCORD_TOKEN")
-
+func NewDiscordClientFromConfig(config map[string]string) (*DiscordClient, error) {
+	token := config["token"]
 	if token == "" {
-		log.Fatal("DISCORD_TOKEN is not set")
+		token = os.Getenv("DISCORD_TOKEN")
 	}
 
-	session, _ := discordgo.New("Bot " + token)
+	if token == "" {
+		return nil, fmt.Errorf("DISCORD_TOKEN not provided in config or environment")
+	}
+
+	channelID := config["channel_id"]
+	if channelID == "" {
+		channelID = os.Getenv("DISCORD_CHANNEL_ID")
+	}
+
+	adminID := config["admin_id"]
+	if adminID == "" {
+		adminID = os.Getenv("DISCORD_ADMIN")
+	}
+
+	session, err := discordgo.New("Bot " + token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Discord session: %w", err)
+	}
+
 	dc := &DiscordClient{
 		session:   session,
-		channelID: os.Getenv("DISCORD_CHANNEL_ID"),
+		channelID: channelID,
 	}
 
 	session.AddHandler(dc.onMessageCreate)
 	session.AddHandler(dc.onInteractionCreate)
 	session.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions
 
-	return dc
+	log.Printf("✅ Discord client configured (channel: %s)\n", channelID)
+	return dc, nil
 }
 
 func (c *DiscordClient) Subscribe(rt *runtime.Runtime) {
