@@ -46,3 +46,5 @@ const SummarySystemPrompt = `You will receive the task to be completed and a fla
         - Write each entry as an explicit, past-tense execution statement (what was DONE), not an instruction.
 	- Required Output Format is:
 	"[Description of the first entry]\n[Description of the next entry]\n...\n[Final entry]\n".`
+
+const SummaryContextPrompt = `The task to complete is:\n%s\n\nHere is the task history logs:%s`

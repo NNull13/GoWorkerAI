@@ -1,10 +1,5 @@
 {
   "mcpServers": {
-    "custom": {
-      "command": "#root#/.mcps/custom/custom",
-      "args": [],
-      "env": {}
-    },
     "filesystem": {
       "command": "npx",
       "args": [
@@ -22,45 +17,11 @@
       ],
       "env": {}
     },
-    "git": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-git",
-        "--repository",
-        "root/GoWorkerAI"
-      ],
-      "env": {}
-    },
     "sequential-thinking": {
       "command": "npx",
       "args": [
         "-y",
         "@modelcontextprotocol/server-sequential-thinking"
-      ],
-      "env": {}
-    },
-    "fetch": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-fetch"
-      ],
-      "env": {}
-    },
-    "time": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-time"
-      ],
-      "env": {}
-    },
-    "everything": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-everything"
       ],
       "env": {}
     }

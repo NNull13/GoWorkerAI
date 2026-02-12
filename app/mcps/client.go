@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	"GoWorkerAI/app/tools"
 )
@@ -74,6 +75,12 @@ type Content struct {
 	Text string `json:"text"`
 }
 
+type InitializeResult struct {
+	ProtocolVersion string         `json:"protocolVersion,omitempty"`
+	Capabilities    map[string]any `json:"capabilities,omitempty"`
+	ServerInfo      map[string]any `json:"serverInfo,omitempty"`
+}
+
 func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
 
@@ -112,7 +119,7 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 	go client.readLoop()
 	go client.logStderr()
 
-	if err = client.initialize(ctx); err != nil {
+	if _, err = client.initialize(ctx); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
@@ -126,22 +133,41 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 	return client, nil
 }
 
-func (c *Client) initialize(ctx context.Context) error {
+func (c *Client) initialize(ctx context.Context) (*InitializeResult, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+	}
+
 	params := map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
+		"capabilities": map[string]any{
+			"tools":     map[string]any{},
+			"resources": map[string]any{},
+			"prompts":   map[string]any{},
+		},
 		"clientInfo": map[string]any{
 			"name":    "GoWorkerAI",
 			"version": "1.0.0",
 		},
 	}
 
-	_, err := c.call(ctx, "initialize", params)
+	raw, err := c.call(ctx, "initialize", params)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return c.notify("notifications/initialized", nil)
+	var res InitializeResult
+	if err = json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("unmarshal initialize result: %w", err)
+	}
+
+	if err = c.notify("notifications/initialized", nil); err != nil {
+		return nil, err
+	}
+
+	return &res, nil
 }
 
 func (c *Client) discoverTools(ctx context.Context) error {

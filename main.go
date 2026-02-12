@@ -64,15 +64,23 @@ func main() {
 	colors := utils.GetColors()
 
 	for _, m := range team.Members {
+		existingToolkit := m.GetToolKit()
+		if existingToolkit == nil {
+			existingToolkit = make(map[string]tools.Tool)
+		}
+
 		toolsPreset := tools.NewToolkitFromPreset(m.GetToolsPreset())
+		for name, tool := range toolsPreset {
+			existingToolkit[name] = tool
+		}
 
 		for _, tool := range tools.AllRegisteredTools() {
-			if _, exists := toolsPreset[tool.Name]; !exists {
-				toolsPreset[tool.Name] = tool
+			if _, exists := existingToolkit[tool.Name]; !exists {
+				existingToolkit[tool.Name] = tool
 			}
 		}
 
-		m.SetToolKit(toolsPreset)
+		m.SetToolKit(existingToolkit)
 	}
 
 	auditLogger, err := utils.NewWorkerLogger("team_logs_"+time.Now().Format("20060102_150405"), colors[0], 10000)
@@ -83,7 +91,7 @@ func main() {
 
 	ragClient := rag.NewClient(model)
 	if err = ragClient.InitContext(appCtx); err != nil {
-		log.Fatalf("❌ Failed to init rag: %v", err)
+		log.Printf("❌ Failed to init rag: %v", err)
 	}
 
 	r := runtime.NewRuntime(team, model, db, ragClient)

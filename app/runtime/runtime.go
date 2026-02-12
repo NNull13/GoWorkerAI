@@ -60,7 +60,6 @@ func (r *Runtime) Start(ctx context.Context) {
 
 		go func() {
 			defer r.activeTask.Store(false)
-
 			if err := r.runTask(taskCtx, taskCancel); err != nil {
 				log.Printf("Error running task: %v", err)
 			}
@@ -113,8 +112,14 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 		return nil
 	}
 
-	log.Printf("▶️ Starting task: %s", task.Description)
-	messages := models.CreateMessages(task.Description, leader.Prompt(models.PlanSystemPrompt+"\n"+teamOptions))
+	team.Audits.Printf("▶️ Starting task: %s", task.Description)
+	log.Printf("=" + strings.Repeat("=", 80))
+	log.Printf("📋 TASK ID: %s", task.ID.String())
+	log.Printf("📝 DESCRIPTION: %s", task.Description)
+	log.Printf("👥 TEAM MEMBERS: %d", len(team.Members))
+	log.Printf("=" + strings.Repeat("=", 80))
+
+	messages := models.CreateMessages(task.Description, leader.Prompt(models.PlanSystemPrompt))
 
 	planText, err := r.model.Think(ctx, messages, 0.25, -1)
 	if err != nil {
@@ -131,8 +136,8 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 	for {
 		i++
 		var delegateAction *models.DelegateAction
-		summary := strings.Join(team.Audits.GetLastLogs(10), "\n")
-		prompt := leader.Prompt(summary + "\nLast actions logs:\n" + storage.RecordListToString(history, 10))
+		var summary string
+		prompt := leader.Prompt("Task to complete:\n" + task.Description + "\nLast actions logs:\n" + storage.RecordListToString(history, 10))
 		delegateAction, err = r.model.Delegate(ctx, teamOptions, planText, prompt)
 		if err != nil || delegateAction == nil {
 			log.Printf("❌ Skipping step %d. Error delegating: %v", i, err)
@@ -164,7 +169,8 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 		history, _ = r.db.GetHistoryByTaskID(ctx, task.ID.String(), -1)
 		history = history[summarizedRecords:]
 		newSummary = storage.RecordListToString(history, 100)
-		messages = models.CreateMessages(newSummary, leader.Prompt(models.SummarySystemPrompt))
+		userPrompt := fmt.Sprintf(models.SummaryContextPrompt, delegateAction.Task, newSummary)
+		messages = models.CreateMessages(userPrompt, leader.Prompt(models.SummarySystemPrompt))
 		newSummary, err = r.model.Think(ctx, messages, 0.1, 1000)
 		if err != nil {
 			log.Printf("❌ Skipping step %d. Error summarizing: %v", i, err)
@@ -186,8 +192,17 @@ func (r *Runtime) runTask(ctx context.Context, cancel context.CancelFunc) error 
 
 	}
 
-	r.team.Close()
+	team.Audits.Printf("=" + strings.Repeat("=", 80))
+	team.Audits.Printf("✅ TASK COMPLETED")
+	team.Audits.Printf("📋 TASK ID: %s", task.ID.String())
+	team.Audits.Printf("📊 TOTAL STEPS: %d", i)
+	team.Audits.Printf("=" + strings.Repeat("=", 80))
 
+	if err := r.team.Close(); err != nil {
+		log.Printf("⚠️ Error closing team: %v", err)
+	}
+
+	log.Printf("📄 Task logs saved to: logs/team_logs_%s.log", task.ID.String())
 	return nil
 }
 

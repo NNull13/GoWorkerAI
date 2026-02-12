@@ -32,21 +32,39 @@ func (t *Team) GetMember(key string) *Member {
 	return t.Members[key]
 }
 
-func (t *Team) Close() {
-	t.Audits.ClearBuffer()
-	t.Audits.ClearFile()
+func (t *Team) Close() error {
+	// Close the audit logger but DO NOT clear the logs
+	// Logs must persist for debugging and task resumption
+	if t.Audits != nil {
+		return t.Audits.Close()
+	}
+	return nil
 }
 
 func (t *Team) GetMembersOptions() []string {
 	if t == nil {
 		return nil
 	}
-	options := make([]string, len(t.Members))
+	options := make([]string, 0, len(t.Members))
 	for _, member := range t.Members {
-		if len(member.WhenCall) > 0 {
-			options = append(options, fmt.Sprintf("team member name: %s { when call : %s | tools : [ %v ] } ",
-				member.Key, member.WhenCall, strings.Join(member.GetToolsOptions(), " | ")))
+		if member.Key == leaderKey || member.Key == eventHandlerKey {
+			continue
 		}
+
+		var whenToUseSection string
+		if member.WhenCall != "" {
+			whenToUseSection = fmt.Sprintf("\n  WHEN_TO_USE: %s", member.WhenCall)
+		}
+
+		toolsList := strings.Join(member.GetToolsOptions(), ", ")
+
+		memberOption := fmt.Sprintf("WORKER_NAME: \"%s\"%s\n  AVAILABLE_TOOLS: [%s]",
+			member.Key,
+			whenToUseSection,
+			toolsList,
+		)
+
+		options = append(options, memberOption)
 	}
 	return options
 }

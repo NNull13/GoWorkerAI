@@ -40,9 +40,9 @@ func (w *Worker) GetToolsOptions() []string {
 	if w == nil {
 		return nil
 	}
-	options := make([]string, len(w.Toolkit))
+	options := make([]string, 0, len(w.Toolkit))
 	for _, tool := range w.Toolkit {
-		options = append(options, fmt.Sprintf("name: %s { description: %s } ", tool.Name, tool.Description))
+		options = append(options, fmt.Sprintf("tool name: %s { description: %s } ", tool.Name, tool.Description))
 	}
 	return options
 }

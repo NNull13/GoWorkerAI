@@ -103,6 +103,8 @@ func (mc *LLMClient) Delegate(ctx context.Context, options, context, sysPrompt s
 		Content: sysPrompt + `Tooling policy:
 - Use tool delegate_task to delegate atomic subtasks to a specific worker.
 - If no worker fits or information is missing, choose "none" as worker to avoid task.
+- Should always respond with an existing worker key in case you ask for any task.
+- If you are not sure on which worker to delegate, choose the best from the list as assigned worker.
 - If the task is finished, you must choose "none" as worker and "finish" as task and the reason of the finish as context.`,
 	}
 	user := Message{
@@ -189,18 +191,22 @@ func (mc *LLMClient) Process(ctx context.Context, memberKey string, audit *log.L
 	}
 	message = response.Choices[0].Message
 
-	if err = mc.storage.SaveHistory(ctx, storage.Record{
-		TaskID:    taskID,
-		MemberID:  memberKey,
-		SubTaskID: int64(stepID),
-		Role:      AssistantRole,
-		Content:   message.Content,
-		CreatedAt: time.Now(),
-	}); err != nil {
-		log.Printf("⚠️ Error saving history for task %s: %v", taskID, err)
+	if len(message.Content) != 0 {
+		if err = mc.storage.SaveHistory(ctx, storage.Record{
+			TaskID:    taskID,
+			MemberID:  memberKey,
+			SubTaskID: int64(stepID),
+			Role:      AssistantRole,
+			Content:   message.Content,
+			CreatedAt: time.Now(),
+		}); err != nil {
+			log.Printf("⚠️ Error saving history for task %s: %v", taskID, err)
+		}
+
+		return message.Content, nil
 	}
 
-	return message.Content, nil
+	return "Successfully processed", nil
 }
 
 func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, toolkit map[string]tools.Tool,
@@ -208,7 +214,7 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 	messages = append(messages, Message{Role: AssistantRole, ToolCalls: toolCalls})
 
 	for _, call := range toolCalls {
-		log.Printf("▶️ Executing: %v", call)
+		audit.Printf("▶️ Executing: %v", call)
 		toolTask := tools.ToolTask{Key: call.Function.Name}
 		toolTask.Parameters, _ = utils.ParseArguments(call.Function.Arguments)
 		tool, exists := toolkit[toolTask.Key]
@@ -223,7 +229,7 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 
 		result, err := tool.HandlerFunc(toolTask)
 		if err != nil {
-			log.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
+			audit.Printf("⚠️ Tool %s execution failed: %v", tool.Name, err)
 			result = err.Error()
 		}
 
@@ -237,18 +243,23 @@ func (mc *LLMClient) handleToolCalls(ctx context.Context, audit *log.Logger, too
 			Parameters: call.Function.Arguments,
 			CreatedAt:  time.Now(),
 		}); err != nil {
-			log.Printf("⚠️ Error saving history for tool %s: %v", tool.Name, err)
+			audit.Printf("⚠️ Error saving history for tool %s: %v", tool.Name, err)
 		}
 
+		// Always add tool result to messages, even if empty
+		// This preserves conversation context for the LLM
+		resultContent := result
 		if len(result) == 0 {
-			log.Printf("⚠️ Tool %s returned empty result", tool.Name)
-			continue
+			audit.Printf("⚠️ Tool %s returned empty result", tool.Name)
+			resultContent = fmt.Sprintf("[Tool %s executed but returned no output]", tool.Name)
+		} else {
+			audit.Printf("✅ Tool %s executed successfully, result: %s", tool.Name, result)
 		}
 
 		messages = append(messages,
 			Message{
 				Role:       ToolRole,
-				Content:    result,
+				Content:    resultContent,
 				ToolCallID: call.ID,
 			},
 		)

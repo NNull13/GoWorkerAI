@@ -21,6 +21,26 @@ func NewRegistry() *Registry {
 }
 
 func (r *Registry) Start(ctx context.Context, cfg Config) error {
+	return r.start(ctx, cfg, true)
+}
+
+func (r *Registry) StartForMember(ctx context.Context, cfg Config) (map[string]tools.Tool, error) {
+	if err := r.start(ctx, cfg, false); err != nil {
+		return nil, err
+	}
+
+	r.mu.RLock()
+	client, exists := r.servers[cfg.Name]
+	r.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("MCP server %s not found after start", cfg.Name)
+	}
+
+	return client.Tools(), nil
+}
+
+func (r *Registry) start(ctx context.Context, cfg Config, registerGlobally bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -36,10 +56,15 @@ func (r *Registry) Start(ctx context.Context, cfg Config) error {
 
 	r.servers[cfg.Name] = client
 
-	for name, tool := range client.Tools() {
-		if err = tools.Register(tool); err != nil {
-			log.Printf("⚠️ Failed to register tool %s: %v\n", name, err)
+	if registerGlobally {
+		for name, tool := range client.Tools() {
+			if err = tools.Register(tool); err != nil {
+				log.Printf("⚠️ Failed to register tool %s: %v\n", name, err)
+			}
 		}
+		log.Printf("✅ Global MCP server %s started with %d tools\n", cfg.Name, len(client.Tools()))
+	} else {
+		log.Printf("✅ Member-specific MCP server %s started with %d tools\n", cfg.Name, len(client.Tools()))
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	"GoWorkerAI/app/mcps"
 	"GoWorkerAI/app/runtime"
 	"GoWorkerAI/app/teams"
+	"GoWorkerAI/app/tools"
 )
 
 func (tc TeamConfig) BuildTeam(ctx context.Context, mcpRegistry *mcps.Registry) (*teams.Team, error) {
@@ -20,11 +21,22 @@ func (tc TeamConfig) BuildTeam(ctx context.Context, mcpRegistry *mcps.Registry) 
 			return nil, fmt.Errorf("build worker %s: %w", mc.Key, err)
 		}
 
+		var memberTools []tools.Tool
 		for _, mcpCfg := range mc.MCPs {
-			log.Printf("🔧 Starting MCP '%s' for worker '%s'\n", mcpCfg.Name, mc.Key)
-			if err = mcpRegistry.Start(ctx, mcpCfg); err != nil {
+			log.Printf("🔧 Starting member-specific MCP '%s' for worker '%s'\n", mcpCfg.Name, mc.Key)
+			mcpTools, err := mcpRegistry.StartForMember(ctx, mcpCfg)
+			if err != nil {
 				return nil, fmt.Errorf("start MCP %s for worker %s: %w", mcpCfg.Name, mc.Key, err)
 			}
+
+			for _, tool := range mcpTools {
+				memberTools = append(memberTools, tool)
+			}
+		}
+
+		if len(memberTools) > 0 {
+			worker.AddTools(memberTools)
+			log.Printf("✅ Added %d member-specific MCP tools to worker '%s'\n", len(memberTools), mc.Key)
 		}
 
 		member := teams.NewMember(mc.Key, mc.System, mc.WhenCall, worker)
